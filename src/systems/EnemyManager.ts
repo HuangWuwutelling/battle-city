@@ -90,10 +90,7 @@ export class EnemyManager {
     // Update active enemies
     for (const enemy of this.activeEnemies) {
       if (!enemy.active) continue;
-      const newBullet = enemy.update(dt, map, allTanks, playerPos);
-      if (newBullet) {
-        // Bullet will be picked up by BulletManager via getEnemyBullets
-      }
+      enemy.update(dt, map, allTanks, playerPos);
     }
 
     // Clean up dead enemies
@@ -121,17 +118,6 @@ export class EnemyManager {
     }
 
     this.spawning = { config, point: spawnPoint, timer: 0 };
-  }
-
-  getEnemyBullets(): Bullet[] {
-    const result: Bullet[] = [];
-    for (const enemy of this.activeEnemies) {
-      if (!enemy.active) continue;
-      for (const b of enemy.activeBullets) {
-        result.push(b);
-      }
-    }
-    return result;
   }
 
   renderSpawnAnimation(ctx: CanvasRenderingContext2D): void {
