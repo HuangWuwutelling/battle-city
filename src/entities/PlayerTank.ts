@@ -9,14 +9,22 @@ import { Input } from '../systems/Input';
 import { GameMap } from '../systems/Map';
 
 export class PlayerTank extends Tank {
+  readonly playerIndex: 0 | 1;
   lives: number;
   private invincibleTimer = 0;
   private bullets: Bullet[] = [];
   private sliding = false;
   private slideDirection: Direction = 'up';
 
-  constructor(x: number, y: number) {
-    super(x, y, PLAYER_SPEED, 1, COLORS.playerBody, COLORS.playerTrack);
+  constructor(
+    x: number,
+    y: number,
+    playerIndex: 0 | 1,
+    bodyColor: string = COLORS.player1Body,
+    trackColor: string = COLORS.player1Track,
+  ) {
+    super(x, y, PLAYER_SPEED, 1, bodyColor, trackColor);
+    this.playerIndex = playerIndex;
     this.lives = PLAYER_LIVES;
     this.invincibleTimer = INVINCIBLE_DURATION;
   }
@@ -41,7 +49,7 @@ export class PlayerTank extends Tank {
     this.bullets = this.bullets.filter(b => b.active);
 
     // Movement
-    const dir = input.getDirection();
+    const dir = input.getPlayerDirection(this.playerIndex);
     let newBullet: Bullet | null = null;
 
     if (dir) {
@@ -59,7 +67,7 @@ export class PlayerTank extends Tank {
 
     // Shooting
     this.shootCooldown = Math.max(0, this.shootCooldown - dt);
-    if (input.isShooting() && this.shootCooldown <= 0 && this.activeBullets.length < PLAYER_MAX_BULLETS) {
+    if (input.isPlayerShooting(this.playerIndex) && this.shootCooldown <= 0 && this.activeBullets.length < PLAYER_MAX_BULLETS) {
       const bp = this.getBulletSpawnPoint();
       newBullet = new Bullet(bp.x, bp.y, this.direction, PLAYER_BULLET_SPEED, true);
       this.bullets.push(newBullet);
