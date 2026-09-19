@@ -27,11 +27,11 @@ export class EnemyTank extends Tank {
   bullet: Bullet | null = null;
   private flashTimer = 0;
 
-  constructor(x: number, y: number, type: EnemyType) {
+  constructor(x: number, y: number, type: EnemyType, speedMult: number = 1) {
     const config = ENEMY_CONFIGS[type];
-    super(x, y, config.speed, config.hp, config.bodyColor, '#404040');
+    super(x, y, config.speed * speedMult, config.hp, config.bodyColor, '#404040');
     this.type = type;
-    this.bulletSpeed = config.bulletSpeed;
+    this.bulletSpeed = config.bulletSpeed * speedMult;
     this.score = config.score;
     this.nextDirectionChange = this.randomInterval();
     this.shootTimer = this.randomShootCooldown();

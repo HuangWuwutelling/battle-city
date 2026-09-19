@@ -1,8 +1,9 @@
 import {
   MAX_ACTIVE_ENEMIES, SPAWN_INTERVAL, SPAWN_ANIMATION_DURATION,
   ENEMY_SPAWN_POINTS, CELL_SIZE, TANK_SIZE,
+  DIFFICULTY,
 } from '../constants';
-import { EnemyType, EnemyConfig, Point } from '../types';
+import { EnemyType, EnemyConfig, Difficulty, Point } from '../types';
 import { EnemyTank } from '../entities/EnemyTank';
 import { Bullet } from '../entities/Bullet';
 import { Tank } from '../entities/Tank';
@@ -21,19 +22,27 @@ export class EnemyManager {
   private spawnTimer = 0;
   private currentSpawnIndex = 0;
   private spawning: SpawningEnemy | null = null;
+  private currentSpeedMult = 1;
 
-  initLevel(enemies: { basic: number; fast: number; power: number; armor: number }): void {
+  initLevel(
+    enemies: { basic: number; fast: number; power: number; armor: number },
+    difficulty: Difficulty = 'medium',
+  ): void {
     this.spawnQueue = [];
     this.activeEnemies = [];
     this.spawnTimer = 0;
     this.currentSpawnIndex = 0;
     this.spawning = null;
 
+    const diff = DIFFICULTY[difficulty];
+    this.currentSpeedMult = diff.speedMult;
+    const applyMult = (n: number) => Math.max(1, Math.round(n * diff.countMult));
+
     const queue: EnemyConfig[] = [];
-    for (let i = 0; i < enemies.basic; i++) queue.push({ type: 'basic' });
-    for (let i = 0; i < enemies.fast; i++) queue.push({ type: 'fast' });
-    for (let i = 0; i < enemies.power; i++) queue.push({ type: 'power' });
-    for (let i = 0; i < enemies.armor; i++) queue.push({ type: 'armor' });
+    for (let i = 0; i < applyMult(enemies.basic); i++) queue.push({ type: 'basic' });
+    for (let i = 0; i < applyMult(enemies.fast); i++) queue.push({ type: 'fast' });
+    for (let i = 0; i < applyMult(enemies.power); i++) queue.push({ type: 'power' });
+    for (let i = 0; i < applyMult(enemies.armor); i++) queue.push({ type: 'armor' });
 
     // Shuffle
     for (let i = queue.length - 1; i > 0; i--) {
@@ -60,7 +69,7 @@ export class EnemyManager {
       this.spawning.timer += dt;
       if (this.spawning.timer >= SPAWN_ANIMATION_DURATION) {
         const { config, point } = this.spawning;
-        const enemy = new EnemyTank(point.x * CELL_SIZE, point.y * CELL_SIZE, config.type);
+        const enemy = new EnemyTank(point.x * CELL_SIZE, point.y * CELL_SIZE, config.type, this.currentSpeedMult);
         this.activeEnemies.push(enemy);
         this.spawning = null;
       }
