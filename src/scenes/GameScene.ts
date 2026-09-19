@@ -223,7 +223,7 @@ export class GameScene implements Scene {
       this.levelScore[type as EnemyType] += count as number;
     }
 
-    if (result.friendlyHitIndex !== null) {
+    if (result.friendlyHit) {
       this.handleFriendlyHit();
     }
 

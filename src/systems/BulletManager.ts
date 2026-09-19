@@ -54,9 +54,31 @@ export class BulletManager {
         exp.frame++;
       }
     }
-    this.explosions = this.explosions.filter(e => e.frame < 3);
+    this.compact();
+  }
 
-    this.bullets = this.bullets.filter(b => b.active);
+  /**
+   * In-place swap-and-pop compaction: drops inactive bullets from
+   * `this.bullets` and finished explosions (frame >= 3) from
+   * `this.explosions`. Survivor order changes, but every removed element is
+   * dropped and every surviving element is kept — equivalent to the prior
+   * `.filter(active)` / `.filter(frame < 3)` calls. Called once per frame
+   * after the per-bullet update loop, so it also cleans up the inactive
+   * bullets left behind by `processCollisions`.
+   */
+  private compact(): void {
+    for (let i = this.bullets.length - 1; i >= 0; i--) {
+      if (!this.bullets[i].active) {
+        this.bullets[i] = this.bullets[this.bullets.length - 1];
+        this.bullets.pop();
+      }
+    }
+    for (let i = this.explosions.length - 1; i >= 0; i--) {
+      if (this.explosions[i].frame >= 3) {
+        this.explosions[i] = this.explosions[this.explosions.length - 1];
+        this.explosions.pop();
+      }
+    }
   }
 
   private addExplosion(x: number, y: number): void {
@@ -67,91 +89,101 @@ export class BulletManager {
     map: GameMap,
     friendlyTanks: Tank[],
     enemies: EnemyTank[],
-  ): { score: number; enemyKills: Partial<Record<EnemyType, number>>; friendlyHitIndex: number | null; eagleHit: boolean } {
+  ): { score: number; enemyKills: Partial<Record<EnemyType, number>>; friendlyHit: boolean; eagleHit: boolean } {
     let score = 0;
     const enemyKills: Partial<Record<EnemyType, number>> = {};
-    let friendlyHitIndex: number | null = null;
+    let friendlyHit = false;
     let eagleHit = false;
 
-    // Bullet vs terrain
+    // Snapshot the active enemy bullets once. The player-bullet dispatch
+    // iterates this as a sub-loop for bullet-vs-bullet without re-scanning
+    // `this.bullets`. Stale entries (destroyed mid-loop) are guarded by
+    // `if (!eb.active) continue;`.
+    const activeEnemyBullets: Bullet[] = [];
+    for (const b of this.bullets) {
+      if (b.active && !b.ownerIsPlayer) activeEnemyBullets.push(b);
+    }
+
+    // Single pass over `this.bullets`. For each bullet:
+    //   1. Bullet vs terrain
+    //   2. Branch on `ownerIsPlayer` to dispatch into the enemy-collision
+    //      sub-loop (player bullet → enemy bullets + enemies) or the
+    //      friendly-collision sub-loop (enemy bullet → friendly tanks).
     for (const bullet of this.bullets) {
       if (!bullet.active) continue;
+
+      // Bullet vs terrain
       this.checkBulletTerrain(bullet, map);
-    }
-
-    // Bullet vs bullet
-    const playerBullets = this.bullets.filter(b => b.active && b.ownerIsPlayer);
-    const enemyBullets = this.bullets.filter(b => b.active && !b.ownerIsPlayer);
-    for (const pb of playerBullets) {
-      for (const eb of enemyBullets) {
-        if (!eb.active) continue;
-        if (rectsOverlap(pb.rect, eb.rect)) {
-          pb.destroy();
-          eb.destroy();
-        }
-      }
-    }
-
-    // Player bullets vs enemies
-    for (const bullet of this.bullets) {
-      if (!bullet.active || !bullet.ownerIsPlayer) continue;
-      for (const enemy of enemies) {
-        if (!enemy.active) continue;
-        if (rectsOverlap(bullet.rect, enemy.rect)) {
-          bullet.destroy();
-          const destroyed = enemy.takeDamage();
-          if (destroyed) {
-            this.addExplosion(enemy.x, enemy.y);
-            score += enemy.score;
-            enemyKills[enemy.type] = (enemyKills[enemy.type] || 0) + 1;
-            Audio.playTankExplode();
-          }
-          break;
-        }
-      }
-    }
-
-    // Enemy bullets vs friendly tanks (players + AI ally)
-    for (const bullet of this.bullets) {
-      if (!bullet.active || bullet.ownerIsPlayer) continue;
-      for (let i = 0; i < friendlyTanks.length; i++) {
-        const tank = friendlyTanks[i];
-        if (!tank.active) continue;
-        // isInvincible is on the Tank base; PlayerTank overrides for spawn protection,
-        // AlliedTank/EnemyTank inherit the default (false).
-        if ((tank as Tank).isInvincible) continue;
-        if (rectsOverlap(bullet.rect, tank.rect)) {
-          bullet.destroy();
-          const destroyed = tank.takeDamage();
-          if (destroyed) {
-            this.addExplosion(tank.x, tank.y);
-            friendlyHitIndex = i;
-            Audio.playTankExplode();
-          }
-          break; // this bullet is consumed
-        }
-      }
-    }
-
-    // Any bullet vs eagle
-    const eagleRect = {
-      x: EAGLE_POS.x * CELL_SIZE,
-      y: EAGLE_POS.y * CELL_SIZE,
-      width: TANK_SIZE,
-      height: TANK_SIZE,
-    };
-    for (const bullet of this.bullets) {
       if (!bullet.active) continue;
-      if (rectsOverlap(bullet.rect, eagleRect)) {
-        bullet.destroy();
-        map.destroyEagle();
-        eagleHit = true;
-        this.addExplosion(EAGLE_POS.x * CELL_SIZE, EAGLE_POS.y * CELL_SIZE);
-        Audio.playEagleDestroyed();
+
+      if (bullet.ownerIsPlayer) {
+        // Player bullet: bullet-vs-bullet sub-loop, then enemy-collision sub-loop.
+        for (const eb of activeEnemyBullets) {
+          if (!eb.active) continue;
+          if (rectsOverlap(bullet.rect, eb.rect)) {
+            bullet.destroy();
+            eb.destroy();
+            break; // player bullet is consumed
+          }
+        }
+        if (!bullet.active) continue;
+
+        for (const enemy of enemies) {
+          if (!enemy.active) continue;
+          if (rectsOverlap(bullet.rect, enemy.rect)) {
+            bullet.destroy();
+            const destroyed = enemy.takeDamage();
+            if (destroyed) {
+              this.addExplosion(enemy.x, enemy.y);
+              score += enemy.score;
+              enemyKills[enemy.type] = (enemyKills[enemy.type] || 0) + 1;
+              Audio.playTankExplode();
+            }
+            break; // player bullet is consumed
+          }
+        }
+      } else {
+        // Enemy bullet: friendly-collision sub-loop.
+        for (const tank of friendlyTanks) {
+          if (!tank.active) continue;
+          // isInvincible is on the Tank base; PlayerTank overrides for spawn protection,
+          // AlliedTank/EnemyTank inherit the default (false).
+          if (tank.isInvincible) continue;
+          if (rectsOverlap(bullet.rect, tank.rect)) {
+            bullet.destroy();
+            const destroyed = tank.takeDamage();
+            if (destroyed) {
+              this.addExplosion(tank.x, tank.y);
+              friendlyHit = true;
+              Audio.playTankExplode();
+            }
+            break; // enemy bullet is consumed
+          }
+        }
       }
     }
 
-    return { score, enemyKills, friendlyHitIndex, eagleHit };
+    // Eagle check (short-circuit when eagle is already dead).
+    if (map.isEagleAlive()) {
+      const eagleRect = {
+        x: EAGLE_POS.x * CELL_SIZE,
+        y: EAGLE_POS.y * CELL_SIZE,
+        width: TANK_SIZE,
+        height: TANK_SIZE,
+      };
+      for (const bullet of this.bullets) {
+        if (!bullet.active) continue;
+        if (rectsOverlap(bullet.rect, eagleRect)) {
+          bullet.destroy();
+          map.destroyEagle();
+          eagleHit = true;
+          this.addExplosion(EAGLE_POS.x * CELL_SIZE, EAGLE_POS.y * CELL_SIZE);
+          Audio.playEagleDestroyed();
+        }
+      }
+    }
+
+    return { score, enemyKills, friendlyHit, eagleHit };
   }
 
   private checkBulletTerrain(bullet: Bullet, map: GameMap): void {
