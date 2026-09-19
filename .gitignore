@@ -1,4 +1,31 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
+build/
+
+# Local config
 *.local
+.env
+.env.local
+.env.*.local
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Project workflow artifacts (NOT part of the game — local-only)
+.superpowers/
+docs/
+CLAUDE.md
