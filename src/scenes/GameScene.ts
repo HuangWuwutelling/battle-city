@@ -1,9 +1,10 @@
 import {
   GAME_AREA_WIDTH, CANVAS_HEIGHT, HUD_WIDTH,
-  PLAYER_SPAWN, PLAYER1_SPAWN, PLAYER2_SPAWN, PLAYER_SPAWN_COOP, ALLY_SPAWN, CELL_SIZE, COLORS,
+  PLAYER_SPAWN, PLAYER1_SPAWN, PLAYER2_SPAWN, PLAYER_SPAWN_COOP, ALLY_SPAWN,
+  CELL_SIZE, COLORS, DIFFICULTY,
   PLAYER_LIVES, ALLY_LIVES,
 } from '../constants';
-import { Difficulty, EnemyType, GameMode, LevelData, LevelScore } from '../types';
+import { Difficulty, Direction, EnemyType, GameMode, LevelData, LevelScore, TileType } from '../types';
 import { Scene } from './Scene';
 import { Input } from '../systems/Input';
 import { Game } from '../Game';
@@ -12,7 +13,10 @@ import { BulletManager } from '../systems/BulletManager';
 import { EnemyManager } from '../systems/EnemyManager';
 import { PlayerTank } from '../entities/PlayerTank';
 import { AlliedTank } from '../entities/AlliedTank';
+import { EnemyTank } from '../entities/EnemyTank';
+import { Bullet } from '../entities/Bullet';
 import { Tank } from '../entities/Tank';
+import { Save, GameSnapshot } from '../systems/Save';
 
 import level01 from '../data/levels/level-01.json';
 import level02 from '../data/levels/level-02.json';
@@ -37,17 +41,25 @@ export class GameScene implements Scene {
   private customLevelData: LevelData | null = null;
   private mode: GameMode = 'single';
   private difficulty: Difficulty = 'medium';
+  private paused = false;
 
   constructor(game: Game) {
     this.game = game;
   }
 
   enter(params?: Record<string, unknown>): void {
+    // 暂停快照恢复：从快照重建完整状态，跳过后续默认初始化
+    if (params?.snapshot) {
+      this.restoreFromSnapshot(params.snapshot as GameSnapshot);
+      return;
+    }
+
     this.levelIndex = (params?.levelIndex as number) ?? 0;
     this.isCustomLevel = !!(params?.customLevel);
     this.customLevelData = (params?.customLevel as LevelData) ?? null;
     this.mode = (params?.mode as GameMode) ?? 'single';
     this.difficulty = (params?.difficulty as Difficulty) ?? 'medium';
+    this.paused = false;
 
     if (!params?.keepScore) {
       this.score = 0;
@@ -134,10 +146,20 @@ export class GameScene implements Scene {
 
   handleInput(input: Input): void {
     this.input = input;
+    // 暂停/恢复：按 P 或 Esc 时切换暂停状态；进入暂停时立即保存快照
+    if (input.isPause()) {
+      if (!this.paused) {
+        this.paused = true;
+        this.saveSnapshot();
+      } else {
+        this.paused = false;
+      }
+    }
   }
 
   update(dt: number): void {
     if (!this.input) return;
+    if (this.paused) return;
 
     this.map.update(dt);
 
@@ -198,11 +220,13 @@ export class GameScene implements Scene {
     }
 
     if (result.eagleHit) {
+      Save.clearSnapshot();
       this.game.switchScene('gameOver', { score: this.score });
       return;
     }
 
     if (this.enemyManager.isLevelComplete()) {
+      Save.clearSnapshot();
       this.game.switchScene('score', {
         levelIndex: this.levelIndex,
         levelScore: this.levelScore,
@@ -244,8 +268,181 @@ export class GameScene implements Scene {
     const allPlayersDead = this.players.every(p => !p.active);
     const allyGone = !this.ally || !this.ally.active;
     if (allPlayersDead && allyGone) {
+      Save.clearSnapshot();
       this.game.switchScene('gameOver', { score: this.score });
     }
+  }
+
+  /**
+   * 将当前完整游戏状态写入 localStorage。
+   * 仅持久化存活的敌人；剩余数量由 EnemyManager.remainingEnemies 计算。
+   */
+  private saveSnapshot(): void {
+    const snapshot: GameSnapshot = {
+      version: 1,
+      savedAt: Date.now(),
+      levelIndex: this.levelIndex,
+      mode: this.mode,
+      difficulty: this.difficulty,
+      score: this.score,
+      levelScore: { ...this.levelScore },
+      isCustomLevel: this.isCustomLevel,
+      customLevelData: this.customLevelData,
+
+      map: {
+        cells: this.map.getCellGrid().map(row => row.map(cell => cell as number)),
+        eagleAlive: this.map.isEagleAlive(),
+      },
+
+      players: this.players.map(p => ({
+        playerIndex: p.playerIndex,
+        x: p.x,
+        y: p.y,
+        direction: p.direction,
+        lives: p.lives,
+        hp: p.hp,
+        active: p.active,
+        invincibleTimer: (p as unknown as { invincibleTimer: number }).invincibleTimer,
+      })),
+
+      ally: this.ally ? {
+        x: this.ally.x,
+        y: this.ally.y,
+        direction: this.ally.direction,
+        lives: this.ally.lives,
+        hp: this.ally.hp,
+        active: this.ally.active,
+        directionTimer: (this.ally as unknown as { directionTimer: number }).directionTimer,
+        nextDirectionChange: (this.ally as unknown as { nextDirectionChange: number }).nextDirectionChange,
+      } : null,
+
+      enemies: this.enemyManager.activeEnemies
+        .filter(e => e.active)
+        .map(e => ({
+          type: e.type,
+          x: e.x,
+          y: e.y,
+          direction: e.direction,
+          hp: e.hp,
+          active: e.active,
+          directionTimer: (e as unknown as { directionTimer: number }).directionTimer,
+          nextDirectionChange: (e as unknown as { nextDirectionChange: number }).nextDirectionChange,
+          shootTimer: (e as unknown as { shootTimer: number }).shootTimer,
+          flashTimer: (e as unknown as { flashTimer: number }).flashTimer,
+          hasBullet: e.bullet !== null,
+        })),
+      remainingEnemies: this.enemyManager.remainingEnemies,
+
+      bullets: ((this.bulletManager as unknown as { bullets: Bullet[] }).bullets).map(b => ({
+        x: b.x,
+        y: b.y,
+        direction: b.direction,
+        speed: b.speed,
+        ownerIsPlayer: b.ownerIsPlayer,
+        active: b.active,
+      })),
+    };
+
+    Save.saveSnapshot(snapshot);
+  }
+
+  /**
+   * 从快照恢复完整游戏状态。恢复后游戏处于暂停状态，让玩家确认局面后再继续。
+   * 不会触发默认的关卡加载 / 敌人初始化 / 生命重置流程。
+   */
+  private restoreFromSnapshot(snapshot: GameSnapshot): void {
+    this.levelIndex = snapshot.levelIndex;
+    this.mode = snapshot.mode;
+    this.difficulty = snapshot.difficulty;
+    this.score = snapshot.score;
+    this.levelScore = { ...snapshot.levelScore };
+    this.isCustomLevel = snapshot.isCustomLevel;
+    this.customLevelData = snapshot.customLevelData;
+    this.paused = true;
+
+    // 地图：从快照直接覆盖单元（不走 13×13→26×26 展开），并恢复基地存活标志
+    this.map = new GameMap();
+    this.map.setCellGrid(snapshot.map.cells as unknown as TileType[][]);
+    (this.map as unknown as { eagleAlive: boolean }).eagleAlive = snapshot.map.eagleAlive;
+
+    // 管理器
+    this.bulletManager = new BulletManager();
+    this.enemyManager = new EnemyManager();
+
+    // 先创建所有子弹并加入 BulletManager
+    const restoredBullets: Bullet[] = [];
+    for (const b of snapshot.bullets) {
+      const bullet = new Bullet(b.x, b.y, b.direction, b.speed, b.ownerIsPlayer);
+      bullet.active = b.active;
+      restoredBullets.push(bullet);
+      this.bulletManager.addBullet(bullet);
+    }
+
+    // 玩家
+    this.players = [];
+    for (const p of snapshot.players) {
+      const colors = p.playerIndex === 0
+        ? { body: COLORS.player1Body, track: COLORS.player1Track }
+        : { body: COLORS.player2Body, track: COLORS.player2Track };
+      const player = new PlayerTank(p.x, p.y, p.playerIndex, colors.body, colors.track);
+      player.direction = p.direction;
+      player.lives = p.lives;
+      player.hp = p.hp;
+      player.active = p.active;
+      (player as unknown as { invincibleTimer: number }).invincibleTimer = p.invincibleTimer;
+      this.players.push(player);
+    }
+
+    // 友军
+    this.ally = null;
+    if (snapshot.ally) {
+      const a = snapshot.ally;
+      const ally = new AlliedTank(a.x, a.y);
+      ally.direction = a.direction;
+      ally.lives = a.lives;
+      ally.hp = a.hp;
+      ally.active = a.active;
+      (ally as unknown as { directionTimer: number }).directionTimer = a.directionTimer;
+      (ally as unknown as { nextDirectionChange: number }).nextDirectionChange = a.nextDirectionChange;
+      this.ally = ally;
+    }
+
+    // 敌人：重建 activeEnemies + 各自的子弹归属 + 速度倍率
+    const em = this.enemyManager as unknown as {
+      activeEnemies: EnemyTank[];
+      spawnQueue: Array<{ type: EnemyType }>;
+      spawnTimer: number;
+      currentSpawnIndex: number;
+      spawning: unknown;
+      currentSpeedMult: number;
+    };
+    const speedMult = DIFFICULTY[snapshot.difficulty].speedMult;
+    em.currentSpeedMult = speedMult;
+    em.spawning = null;
+    em.spawnTimer = 0;
+
+    const enemyBulletsInOrder = restoredBullets.filter(b => !b.ownerIsPlayer);
+    let enemyBulletCursor = 0;
+    for (const e of snapshot.enemies) {
+      const enemy = new EnemyTank(e.x, e.y, e.type, speedMult);
+      enemy.direction = e.direction;
+      enemy.hp = e.hp;
+      enemy.active = e.active;
+      (enemy as unknown as { directionTimer: number }).directionTimer = e.directionTimer;
+      (enemy as unknown as { nextDirectionChange: number }).nextDirectionChange = e.nextDirectionChange;
+      (enemy as unknown as { shootTimer: number }).shootTimer = e.shootTimer;
+      (enemy as unknown as { flashTimer: number }).flashTimer = e.flashTimer;
+      if (e.hasBullet && enemyBulletCursor < enemyBulletsInOrder.length) {
+        (enemy as unknown as { bullet: Bullet | null }).bullet = enemyBulletsInOrder[enemyBulletCursor++];
+      }
+      em.activeEnemies.push(enemy);
+    }
+
+    // 用占位类型重建 spawnQueue，使 remainingEnemies 计数与快照一致
+    const activeCount = em.activeEnemies.filter(e => e.active).length;
+    const spawnQueueLen = Math.max(0, snapshot.remainingEnemies - activeCount);
+    em.spawnQueue = new Array(spawnQueueLen).fill({ type: 'basic' });
+    em.currentSpawnIndex = em.activeEnemies.length;
   }
 
   render(ctx: CanvasRenderingContext2D): void {
@@ -274,6 +471,11 @@ export class GameScene implements Scene {
 
     // 6. HUD
     this.renderHUD(ctx);
+
+    // 7. Pause overlay
+    if (this.paused) {
+      this.renderPauseOverlay(ctx);
+    }
   }
 
   private renderHUD(ctx: CanvasRenderingContext2D): void {
@@ -346,5 +548,18 @@ export class GameScene implements Scene {
     ctx.fillText('SCORE', cx, 360);
     ctx.font = 'bold 16px monospace';
     ctx.fillText(`${this.score}`, cx, 385);
+  }
+
+  private renderPauseOverlay(ctx: CanvasRenderingContext2D): void {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(0, 0, GAME_AREA_WIDTH, CANVAS_HEIGHT);
+
+    ctx.fillStyle = COLORS.hudText;
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 32px monospace';
+    ctx.fillText('PAUSED', GAME_AREA_WIDTH / 2, CANVAS_HEIGHT / 2 - 10);
+    ctx.font = '12px monospace';
+    ctx.fillStyle = '#A0A0A0';
+    ctx.fillText('按 P / Esc 继续', GAME_AREA_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
   }
 }

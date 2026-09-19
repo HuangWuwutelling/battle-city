@@ -1,7 +1,10 @@
-import type { Difficulty } from '../types';
+import type { Direction, Difficulty, EnemyType, GameMode, LevelData, LevelScore } from '../types';
 
 // 简单的 localStorage 存档：当前可继续的最高关卡 + 累计得分
 const SAVE_KEY = 'battle-city-save-v1';
+
+// 暂停时保存的完整游戏状态快照（用于主菜单"继续关卡"恢复）
+const SNAPSHOT_KEY = 'battle-city-snapshot-v1';
 
 export interface SaveData {
   // 玩家可以"继续"的下一关（已通关的最高关卡 + 1）
@@ -13,6 +16,71 @@ export interface SaveData {
   updatedAt: number;
   // 上次选择的难度（默认 medium，向后兼容老存档）
   lastDifficulty: Difficulty;
+}
+
+/**
+ * 暂停时保存的完整游戏状态。
+ * 用 schema version 字段为将来兼容性/迁移留出空间。
+ */
+export interface GameSnapshot {
+  version: 1;
+  savedAt: number;
+  levelIndex: number;
+  mode: GameMode;
+  difficulty: Difficulty;
+  score: number;
+  levelScore: LevelScore;
+  isCustomLevel: boolean;
+  customLevelData: LevelData | null;
+
+  // 地图状态（26×26 单元 + 基地存活标志）
+  map: { cells: number[][]; eagleAlive: boolean };
+
+  // 玩家坦克
+  players: Array<{
+    playerIndex: 0 | 1;
+    x: number; y: number;
+    direction: Direction;
+    lives: number;
+    hp: number;
+    active: boolean;
+    invincibleTimer: number;
+  }>;
+
+  // AI 友军（单人或对战模式下为 null）
+  ally: {
+    x: number; y: number;
+    direction: Direction;
+    lives: number;
+    hp: number;
+    active: boolean;
+    directionTimer: number;
+    nextDirectionChange: number;
+  } | null;
+
+  // 敌人（仅保存存活的；剩余数量另算）
+  enemies: Array<{
+    type: EnemyType;
+    x: number; y: number;
+    direction: Direction;
+    hp: number;
+    active: boolean;
+    directionTimer: number;
+    nextDirectionChange: number;
+    shootTimer: number;
+    flashTimer: number;
+    hasBullet: boolean;
+  }>;
+  remainingEnemies: number;
+
+  // 当前飞行中的子弹
+  bullets: Array<{
+    x: number; y: number;
+    direction: Direction;
+    speed: number;
+    ownerIsPlayer: boolean;
+    active: boolean;
+  }>;
 }
 
 export const Save = {
@@ -70,5 +138,39 @@ export const Save = {
 
   hasSave(): boolean {
     return Save.load() !== null;
+  },
+
+  // ---------- 暂停快照 ----------
+
+  saveSnapshot(snapshot: GameSnapshot): void {
+    try {
+      localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshot));
+    } catch {
+      // 隐私模式 / 配额超限，忽略
+    }
+  },
+
+  loadSnapshot(): GameSnapshot | null {
+    try {
+      const raw = localStorage.getItem(SNAPSHOT_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as GameSnapshot;
+      if (parsed.version !== 1) return null; // 拒绝不兼容的版本
+      return parsed;
+    } catch {
+      return null;
+    }
+  },
+
+  hasSnapshot(): boolean {
+    return Save.loadSnapshot() !== null;
+  },
+
+  clearSnapshot(): void {
+    try {
+      localStorage.removeItem(SNAPSHOT_KEY);
+    } catch {
+      // ignore
+    }
   },
 };

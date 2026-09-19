@@ -3,12 +3,14 @@ import { Difficulty, GameMode } from '../types';
 import { Scene } from './Scene';
 import { Input } from '../systems/Input';
 import { Game } from '../Game';
+import type { GameSnapshot } from '../systems/Save';
 
 export class StageIntroScene implements Scene {
   private game: Game;
   private levelIndex = 0;
   private mode: GameMode = 'single';
   private difficulty: Difficulty = 'medium';
+  private snapshot: GameSnapshot | null = null;
   private timer = 0;
 
   constructor(game: Game) {
@@ -19,6 +21,7 @@ export class StageIntroScene implements Scene {
     this.levelIndex = (params?.levelIndex as number) ?? 0;
     this.mode = (params?.mode as GameMode) ?? 'single';
     this.difficulty = (params?.difficulty as Difficulty) ?? 'medium';
+    this.snapshot = (params?.snapshot as GameSnapshot) ?? null;
     this.timer = 0;
   }
 
@@ -32,6 +35,9 @@ export class StageIntroScene implements Scene {
         levelIndex: this.levelIndex,
         mode: this.mode,
         difficulty: this.difficulty,
+        snapshot: this.snapshot ?? undefined,
+        // 有快照时跳过默认的生命重置（快照里已带正确的剩余生命）
+        resumeFromSave: this.snapshot !== null,
       });
     }
   }

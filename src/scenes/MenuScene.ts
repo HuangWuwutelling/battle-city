@@ -33,7 +33,7 @@ export class MenuScene implements Scene {
     this.pendingMode = null;
     // 默认选项
     this.options = ['single', 'coop', 'versus', 'editor'];
-    if (Save.hasSave()) this.options.unshift('continue');
+    if (Save.hasSnapshot() || Save.hasSave()) this.options.unshift('continue');
 
     // 从存档恢复上次难度
     const saved = Save.load();
@@ -67,6 +67,18 @@ export class MenuScene implements Scene {
         return;
       }
       if (opt === 'continue') {
+        // 优先用暂停快照恢复（精确还原当时状态）；无快照时回退到普通通关存档
+        const snapshot = Save.loadSnapshot();
+        if (snapshot) {
+          this.game.switchScene('stageIntro', {
+            snapshot,
+            levelIndex: snapshot.levelIndex,
+            mode: snapshot.mode,
+            difficulty: snapshot.difficulty,
+            keepScore: true,
+          });
+          return;
+        }
         const data = Save.load();
         const levelIndex = data?.nextLevel ?? 0;
         const difficulty = data?.lastDifficulty ?? 'medium';
@@ -107,6 +119,10 @@ export class MenuScene implements Scene {
 
   private getOptionLabel(opt: MenuOption): string {
     if (opt === 'continue') {
+      const snapshot = Save.loadSnapshot();
+      if (snapshot) {
+        return `继续关卡 ${snapshot.levelIndex + 1}`;
+      }
       const data = Save.load();
       return `继续游戏 (关卡 ${(data?.nextLevel ?? 0) + 1})`;
     }
