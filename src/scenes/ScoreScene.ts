@@ -1,5 +1,5 @@
 import { CANVAS_WIDTH, CANVAS_HEIGHT, COLORS, SCORE_BASIC, SCORE_FAST, SCORE_POWER, SCORE_ARMOR } from '../constants';
-import { Difficulty, LevelScore } from '../types';
+import { Difficulty, GameMode, LevelScore } from '../types';
 import { Scene } from './Scene';
 import { Input } from '../systems/Input';
 import { Game } from '../Game';
@@ -13,6 +13,7 @@ export class ScoreScene implements Scene {
   private totalScore = 0;
   private isCustomLevel = false;
   private difficulty: Difficulty = 'medium';
+  private mode: GameMode = 'single';
   private timer = 0;
 
   constructor(game: Game) {
@@ -25,6 +26,7 @@ export class ScoreScene implements Scene {
     this.totalScore = (params?.totalScore as number) ?? 0;
     this.isCustomLevel = (params?.isCustomLevel as boolean) ?? false;
     this.difficulty = (params?.difficulty as Difficulty) ?? 'medium';
+    this.mode = (params?.mode as GameMode) ?? 'single';
     this.timer = 0;
 
     // 通关内置关卡时存进度（保留难度偏好）
@@ -46,6 +48,7 @@ export class ScoreScene implements Scene {
         this.game.switchScene('stageIntro', {
           levelIndex: this.levelIndex + 1,
           difficulty: this.difficulty,
+          mode: this.mode,
         });
       }
     }
@@ -57,6 +60,7 @@ export class ScoreScene implements Scene {
       this.game.switchScene('stageIntro', {
         levelIndex: this.levelIndex + 1,
         difficulty: this.difficulty,
+        mode: this.mode,
       });
     }
   }

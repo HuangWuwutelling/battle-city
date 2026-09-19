@@ -239,6 +239,7 @@ export class GameScene implements Scene {
         totalScore: this.score,
         isCustomLevel: this.isCustomLevel,
         difficulty: this.difficulty,
+        mode: this.mode,
       });
     }
   }
