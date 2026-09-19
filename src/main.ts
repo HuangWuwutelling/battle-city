@@ -12,9 +12,7 @@ const MARGIN = 20;
 function fitCanvas(): void {
   const maxW = window.innerWidth - MARGIN * 2;
   const maxH = window.innerHeight - MARGIN * 2;
-  const scaleX = Math.floor(maxW / LOGICAL_W);
-  const scaleY = Math.floor(maxH / LOGICAL_H);
-  const scale = Math.max(1, Math.min(scaleX, scaleY));
+  const scale = Math.max(0.5, Math.min(maxW / LOGICAL_W, maxH / LOGICAL_H));
   canvas.style.width = `${LOGICAL_W * scale}px`;
   canvas.style.height = `${LOGICAL_H * scale}px`;
 }
