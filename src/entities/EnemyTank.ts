@@ -24,7 +24,6 @@ export class EnemyTank extends Tank {
   private directionTimer = 0;
   private nextDirectionChange: number;
   private shootTimer: number;
-  bullet: Bullet | null = null;
   private flashTimer = 0;
 
   constructor(x: number, y: number, type: EnemyType, speedMult: number = 1) {
@@ -83,17 +82,16 @@ export class EnemyTank extends Tank {
     // Shoot timer
     let newBullet: Bullet | null = null;
     this.shootTimer -= dt;
-    if (this.shootTimer <= 0 && (!this.bullet || !this.bullet.active)) {
+    if (this.shootTimer <= 0 && this.activeBullets.length === 0) {
       const bp = this.getBulletSpawnPoint();
-      this.bullet = new Bullet(bp.x, bp.y, this.direction, this.bulletSpeed, false);
-      newBullet = this.bullet;
+      const bullet = new Bullet(bp.x, bp.y, this.direction, this.bulletSpeed, false);
+      this.bullets.push(bullet);
+      newBullet = bullet;
       this.shootTimer = this.randomShootCooldown();
     }
 
-    // Update existing bullet
-    if (this.bullet && this.bullet.active) {
-      this.bullet.update();
-    }
+    // Update existing bullets (shared with PlayerTank/AlliedTank)
+    this.updateBullets(dt, map);
 
     return newBullet;
   }

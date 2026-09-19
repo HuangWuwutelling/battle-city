@@ -200,8 +200,10 @@ export class GameScene implements Scene {
 
     // Pull any newly spawned enemy bullets into the bullet manager
     for (const enemy of this.enemyManager.activeEnemies) {
-      if (enemy.bullet && enemy.bullet.active && !this.bulletManager.hasBullet(enemy.bullet)) {
-        this.bulletManager.addBullet(enemy.bullet, 'enemy');
+      for (const bullet of enemy.activeBullets) {
+        if (!this.bulletManager.hasBullet(bullet)) {
+          this.bulletManager.addBullet(bullet, 'enemy');
+        }
       }
     }
 
@@ -336,7 +338,7 @@ export class GameScene implements Scene {
           nextDirectionChange: (e as unknown as { nextDirectionChange: number }).nextDirectionChange,
           shootTimer: (e as unknown as { shootTimer: number }).shootTimer,
           flashTimer: (e as unknown as { flashTimer: number }).flashTimer,
-          hasBullet: e.bullet !== null,
+          hasBullet: e.activeBullets.length > 0,
         })),
       remainingEnemies: this.enemyManager.remainingEnemies,
 
@@ -440,7 +442,9 @@ export class GameScene implements Scene {
       (enemy as unknown as { shootTimer: number }).shootTimer = e.shootTimer;
       (enemy as unknown as { flashTimer: number }).flashTimer = e.flashTimer;
       if (e.hasBullet && enemyBulletCursor < enemyBulletsInOrder.length) {
-        (enemy as unknown as { bullet: Bullet | null }).bullet = enemyBulletsInOrder[enemyBulletCursor++];
+        // bullets is protected on Tank; cast through unknown like the prior
+        // single-slot pattern did, since snapshot restore needs to inject.
+        (enemy as unknown as { bullets: Bullet[] }).bullets.push(enemyBulletsInOrder[enemyBulletCursor++]);
       }
       em.activeEnemies.push(enemy);
     }

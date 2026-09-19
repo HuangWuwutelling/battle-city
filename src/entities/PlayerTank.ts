@@ -12,7 +12,6 @@ export class PlayerTank extends Tank {
   readonly playerIndex: 0 | 1;
   lives: number;
   private invincibleTimer = 0;
-  private bullets: Bullet[] = [];
   private sliding = false;
   private slideDirection: Direction = 'up';
 
@@ -33,20 +32,13 @@ export class PlayerTank extends Tank {
     return this.invincibleTimer > 0;
   }
 
-  get activeBullets(): Bullet[] {
-    return this.bullets.filter(b => b.active);
-  }
-
   update(dt: number, input: Input, map: GameMap, allTanks: Tank[]): Bullet | null {
     if (!this.active) return null;
 
     this.invincibleTimer = Math.max(0, this.invincibleTimer - dt);
 
     // Update existing bullets
-    for (const bullet of this.bullets) {
-      if (bullet.active) bullet.update();
-    }
-    this.bullets = this.bullets.filter(b => b.active);
+    this.updateBullets(dt, map);
 
     // Movement
     const dir = input.getPlayerDirection(this.playerIndex);

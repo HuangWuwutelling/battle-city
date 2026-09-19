@@ -2,7 +2,7 @@ import {
   ALLY_SPEED, ALLY_BULLET_SPEED, ALLY_MAX_BULLETS, ALLY_SHOOT_COOLDOWN,
   ALLY_DIRECTION_CHANGE_MIN, ALLY_DIRECTION_CHANGE_MAX,
   ALLY_AGGRO_RANGE, ALLY_NEAR_EAGLE_DISTANCE, EAGLE_POS,
-  CELL_SIZE, COLORS, ALLY_LIVES,
+  CELL_SIZE, TANK_SIZE, COLORS, ALLY_LIVES,
 } from '../constants';
 import { Direction, Point } from '../types';
 import { Tank } from './Tank';
@@ -22,7 +22,6 @@ export class AlliedTank extends Tank {
   private directionTimer = 0;
   private nextDirectionChange: number;
   private shootTimer: number;
-  bullets: Bullet[] = [];
 
   constructor(x: number, y: number) {
     // 友军颜色用青色与敌人明显区分（亮青 #00BFFF）
@@ -32,47 +31,9 @@ export class AlliedTank extends Tank {
     this.shootTimer = ALLY_SHOOT_COOLDOWN;
   }
 
-  get activeBullets(): Bullet[] {
-    return this.bullets.filter(b => b.active);
-  }
-
   private randomInterval(): number {
     return ALLY_DIRECTION_CHANGE_MIN +
       Math.random() * (ALLY_DIRECTION_CHANGE_MAX - ALLY_DIRECTION_CHANGE_MIN);
-  }
-
-  /**
-   * 在给定方向上预瞄几格，检查是否有障碍物/墙
-   * 用于避免朝墙直撞
-   */
-  private canMove(dir: Direction, map: GameMap, allTanks: Tank[]): boolean {
-    const probe = 16; // 探一格
-    let nx = this.x;
-    let ny = this.y;
-    switch (dir) {
-      case 'up':    ny -= probe; break;
-      case 'down':  ny += probe; break;
-      case 'left':  nx -= probe; break;
-      case 'right': nx += probe; break;
-    }
-    if (nx < 0 || nx + 32 > 416 || ny < 0 || ny + 32 > 416) return false;
-    const startCol = Math.floor(nx / CELL_SIZE);
-    const endCol = Math.floor((nx + 31) / CELL_SIZE);
-    const startRow = Math.floor(ny / CELL_SIZE);
-    const endRow = Math.floor((ny + 31) / CELL_SIZE);
-    for (let row = startRow; row <= endRow; row++) {
-      for (let col = startCol; col <= endCol; col++) {
-        if (!map.isPassable(col, row)) return false;
-      }
-    }
-    for (const other of allTanks) {
-      if (other === this || !other.active) continue;
-      if (nx < other.x + 32 && nx + 32 > other.x &&
-          ny < other.y + 32 && ny + 32 > other.y) {
-        return false;
-      }
-    }
-    return true;
   }
 
   private distance(a: Point, b: Point): number {
@@ -111,7 +72,7 @@ export class AlliedTank extends Tank {
           ? (dx > 0 ? ['right', 'up', 'down'] : ['left', 'up', 'down'])
           : (dy > 0 ? ['down', 'left', 'right'] : ['up', 'left', 'right']);
       for (const dir of candidates) {
-        if (this.canMove(dir, map, allTanks)) return dir;
+        if (this.canMoveTo(dir, CELL_SIZE, map, allTanks)) return dir;
       }
     }
 
@@ -123,21 +84,21 @@ export class AlliedTank extends Tank {
       // 站在基地上方一格，朝下面对敌人来的方向
       const guardDirs: Direction[] = ['up', 'left', 'right'];
       for (const dir of guardDirs) {
-        if (this.canMove(dir, map, allTanks)) return dir;
+        if (this.canMoveTo(dir, CELL_SIZE, map, allTanks)) return dir;
       }
     }
 
     // 3. 随机但避免撞墙
     const allDirs: Direction[] = ['up', 'down', 'left', 'right'];
     // 优先保持当前方向（动量）
-    if (this.canMove(this.direction, map, allTanks)) return this.direction;
+    if (this.canMoveTo(this.direction, CELL_SIZE, map, allTanks)) return this.direction;
     // 否则打乱顺序随机
     for (let i = allDirs.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [allDirs[i], allDirs[j]] = [allDirs[j], allDirs[i]];
     }
     for (const dir of allDirs) {
-      if (this.canMove(dir, map, allTanks)) return dir;
+      if (this.canMoveTo(dir, CELL_SIZE, map, allTanks)) return dir;
     }
     return this.direction;
   }
@@ -154,10 +115,10 @@ export class AlliedTank extends Tank {
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist > ALLY_AGGRO_RANGE) continue;
       const aligned =
-        (dir === 'up' && dy < 0 && Math.abs(dx) < 16) ||
-        (dir === 'down' && dy > 0 && Math.abs(dx) < 16) ||
-        (dir === 'left' && dx < 0 && Math.abs(dy) < 16) ||
-        (dir === 'right' && dx > 0 && Math.abs(dy) < 16);
+        (dir === 'up'    && dy < 0 && Math.abs(dx) < TANK_SIZE / 2) ||
+        (dir === 'down'  && dy > 0 && Math.abs(dx) < TANK_SIZE / 2) ||
+        (dir === 'left'  && dx < 0 && Math.abs(dy) < TANK_SIZE / 2) ||
+        (dir === 'right' && dx > 0 && Math.abs(dy) < TANK_SIZE / 2);
       if (aligned) return true;
     }
     return false;
@@ -172,10 +133,7 @@ export class AlliedTank extends Tank {
     if (!this.active) return null;
 
     // 更新自己射出的子弹
-    for (const bullet of this.bullets) {
-      if (bullet.active) bullet.update();
-    }
-    this.bullets = this.bullets.filter(b => b.active);
+    this.updateBullets(dt, map);
 
     // AI 决策 + 移动
     this.directionTimer += dt;

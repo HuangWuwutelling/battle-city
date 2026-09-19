@@ -6,6 +6,7 @@ import { GameMap } from '../systems/Map';
 import { PixelArt } from '../rendering/PixelArt';
 import { Animation } from '../rendering/Animation';
 import { snapToCell } from '../systems/Collision';
+import { Bullet } from './Bullet';
 
 export abstract class Tank {
   x: number;
@@ -19,6 +20,7 @@ export abstract class Tank {
   trackColor: string;
   readonly anim: Animation;
   protected shootCooldown = 0;
+  protected bullets: Bullet[] = [];
 
   constructor(x: number, y: number, speed: number, hp: number, bodyColor: string, trackColor: string) {
     this.x = x;
@@ -50,24 +52,40 @@ export abstract class Tank {
     }
   }
 
-  tryMove(dir: Direction, map: GameMap, allTanks: Tank[]): boolean {
-    // Snap to grid when changing direction
-    if (dir !== this.direction) {
-      if (dir === 'up' || dir === 'down') {
-        this.x = snapToCell(this.x, CELL_SIZE);
-      } else {
-        this.y = snapToCell(this.y, CELL_SIZE);
-      }
-      this.direction = dir;
-    }
+  /**
+   * Subclasses override to expose temporary invincibility (e.g. spawn protection).
+   * Default is non-invincible.
+   */
+  get isInvincible(): boolean {
+    return false;
+  }
 
+  /**
+   * All bullets this tank currently has in flight (active only).
+   * Exposed via the base class so callers don't need to know which subclass
+   * uses an array vs. a single slot.
+   */
+  get activeBullets(): Bullet[] {
+    return this.bullets.filter(b => b.active);
+  }
+
+  /**
+   * Pure probe: would the tank be able to move `distance` pixels in `dir`
+   * given the current map and other tanks? Does NOT mutate x/y.
+   */
+  protected canMoveTo(
+    dir: Direction,
+    distance: number,
+    map: GameMap,
+    allTanks: Tank[],
+  ): boolean {
     let nx = this.x;
     let ny = this.y;
     switch (dir) {
-      case 'up':    ny -= this.speed; break;
-      case 'down':  ny += this.speed; break;
-      case 'left':  nx -= this.speed; break;
-      case 'right': nx += this.speed; break;
+      case 'up':    ny -= distance; break;
+      case 'down':  ny += distance; break;
+      case 'left':  nx -= distance; break;
+      case 'right': nx += distance; break;
     }
 
     // Boundary check
@@ -99,8 +117,41 @@ export abstract class Tank {
       }
     }
 
-    this.x = nx;
-    this.y = ny;
+    return true;
+  }
+
+  /**
+   * Update all in-flight bullets this tank owns and compact the array
+   * in place. Shared by all tank subclasses.
+   */
+  protected updateBullets(dt: number, map: GameMap): void {
+    for (const bullet of this.bullets) {
+      if (bullet.active) bullet.update();
+    }
+    this.bullets = this.bullets.filter(b => b.active);
+  }
+
+  tryMove(dir: Direction, map: GameMap, allTanks: Tank[]): boolean {
+    // Snap to grid when changing direction
+    if (dir !== this.direction) {
+      if (dir === 'up' || dir === 'down') {
+        this.x = snapToCell(this.x, CELL_SIZE);
+      } else {
+        this.y = snapToCell(this.y, CELL_SIZE);
+      }
+      this.direction = dir;
+    }
+
+    if (!this.canMoveTo(dir, this.speed, map, allTanks)) {
+      return false;
+    }
+
+    switch (dir) {
+      case 'up':    this.y -= this.speed; break;
+      case 'down':  this.y += this.speed; break;
+      case 'left':  this.x -= this.speed; break;
+      case 'right': this.x += this.speed; break;
+    }
     this.anim.update(1 / 60);
     return true;
   }

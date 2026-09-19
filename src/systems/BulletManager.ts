@@ -2,7 +2,6 @@ import { CELL_SIZE, EAGLE_POS, TANK_SIZE } from '../constants';
 import { TILE_BRICK, TILE_STEEL, EnemyType } from '../types';
 import { Bullet } from '../entities/Bullet';
 import { Tank } from '../entities/Tank';
-import { PlayerTank } from '../entities/PlayerTank';
 import { EnemyTank } from '../entities/EnemyTank';
 import { GameMap } from './Map';
 import { rectsOverlap } from './Collision';
@@ -118,9 +117,9 @@ export class BulletManager {
       for (let i = 0; i < friendlyTanks.length; i++) {
         const tank = friendlyTanks[i];
         if (!tank.active) continue;
-        // PlayerTank has isInvincible; AlliedTank does not — guard safely.
-        const invincible = 'isInvincible' in tank ? (tank as PlayerTank).isInvincible : false;
-        if (invincible) continue;
+        // isInvincible is on the Tank base; PlayerTank overrides for spawn protection,
+        // AlliedTank/EnemyTank inherit the default (false).
+        if ((tank as Tank).isInvincible) continue;
         if (rectsOverlap(bullet.rect, tank.rect)) {
           bullet.destroy();
           const destroyed = tank.takeDamage();

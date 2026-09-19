@@ -123,10 +123,14 @@ export class EnemyManager {
   }
 
   getEnemyBullets(): Bullet[] {
-    return this.activeEnemies
-      .filter(e => e.active)
-      .map(e => e.bullet)
-      .filter((b): b is Bullet => b != null && b.active);
+    const result: Bullet[] = [];
+    for (const enemy of this.activeEnemies) {
+      if (!enemy.active) continue;
+      for (const b of enemy.activeBullets) {
+        result.push(b);
+      }
+    }
+    return result;
   }
 
   renderSpawnAnimation(ctx: CanvasRenderingContext2D): void {
