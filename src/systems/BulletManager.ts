@@ -1,6 +1,7 @@
 import { CELL_SIZE, EAGLE_POS, TANK_SIZE } from '../constants';
 import { TILE_BRICK, TILE_STEEL, EnemyType } from '../types';
 import { Bullet } from '../entities/Bullet';
+import { Tank } from '../entities/Tank';
 import { PlayerTank } from '../entities/PlayerTank';
 import { EnemyTank } from '../entities/EnemyTank';
 import { GameMap } from './Map';
@@ -53,12 +54,12 @@ export class BulletManager {
 
   processCollisions(
     map: GameMap,
-    player: PlayerTank,
+    friendlyTanks: Tank[],
     enemies: EnemyTank[],
-  ): { score: number; enemyKills: Partial<Record<EnemyType, number>>; playerHit: boolean; eagleHit: boolean } {
+  ): { score: number; enemyKills: Partial<Record<EnemyType, number>>; friendlyHitIndex: number | null; eagleHit: boolean } {
     let score = 0;
     const enemyKills: Partial<Record<EnemyType, number>> = {};
-    let playerHit = false;
+    let friendlyHitIndex: number | null = null;
     let eagleHit = false;
 
     // Bullet vs terrain
@@ -98,15 +99,23 @@ export class BulletManager {
       }
     }
 
-    // Enemy bullets vs player
+    // Enemy bullets vs friendly tanks (players + AI ally)
     for (const bullet of this.bullets) {
       if (!bullet.active || bullet.ownerIsPlayer) continue;
-      if (player.active && !player.isInvincible && rectsOverlap(bullet.rect, player.rect)) {
-        bullet.destroy();
-        const destroyed = player.takeDamage();
-        if (destroyed) {
-          this.addExplosion(player.x, player.y);
-          playerHit = true;
+      for (let i = 0; i < friendlyTanks.length; i++) {
+        const tank = friendlyTanks[i];
+        if (!tank.active) continue;
+        // PlayerTank has isInvincible; AlliedTank does not — guard safely.
+        const invincible = 'isInvincible' in tank ? (tank as PlayerTank).isInvincible : false;
+        if (invincible) continue;
+        if (rectsOverlap(bullet.rect, tank.rect)) {
+          bullet.destroy();
+          const destroyed = tank.takeDamage();
+          if (destroyed) {
+            this.addExplosion(tank.x, tank.y);
+            friendlyHitIndex = i;
+          }
+          break; // this bullet is consumed
         }
       }
     }
@@ -128,7 +137,7 @@ export class BulletManager {
       }
     }
 
-    return { score, enemyKills, playerHit, eagleHit };
+    return { score, enemyKills, friendlyHitIndex, eagleHit };
   }
 
   private checkBulletTerrain(bullet: Bullet, map: GameMap): void {

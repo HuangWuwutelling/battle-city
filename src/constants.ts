@@ -70,6 +70,8 @@ export const ENEMY_SPAWN_POINTS = [
 export const PLAYER_SPAWN = { x: 8, y: 24 };
 export const PLAYER1_SPAWN = PLAYER_SPAWN;       // 别名，便于多人语义一致
 export const PLAYER2_SPAWN = { x: 16, y: 24 };
+export const PLAYER_SPAWN_COOP = { x: 8, y: 24 };
+export const ALLY_SPAWN = { x: 4, y: 24 };
 export const EAGLE_POS = { x: 12, y: 24 };
 
 // Timings

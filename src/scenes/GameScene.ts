@@ -1,6 +1,6 @@
 import {
   GAME_AREA_WIDTH, CANVAS_HEIGHT, HUD_WIDTH,
-  PLAYER_SPAWN, PLAYER1_SPAWN, PLAYER2_SPAWN, CELL_SIZE, COLORS,
+  PLAYER_SPAWN, PLAYER1_SPAWN, PLAYER2_SPAWN, PLAYER_SPAWN_COOP, ALLY_SPAWN, CELL_SIZE, COLORS,
 } from '../constants';
 import { Difficulty, EnemyType, GameMode, LevelData, LevelScore } from '../types';
 import { Scene } from './Scene';
@@ -18,12 +18,6 @@ import level02 from '../data/levels/level-02.json';
 import level03 from '../data/levels/level-03.json';
 import level04 from '../data/levels/level-04.json';
 import level05 from '../data/levels/level-05.json';
-
-// NOTE: PLAYER_SPAWN_COOP and ALLY_SPAWN are local spawn points used only by
-// GameScene. They are inlined here so this file remains the single point of
-// change for Task 10 (constants.ts is intentionally untouched per task brief).
-const PLAYER_SPAWN_COOP = { x: 8, y: 24 };
-const ALLY_SPAWN = { x: 4, y: 24 };
 
 const LEVELS: LevelData[] = [level01, level02, level03, level04, level05] as unknown as LevelData[];
 
@@ -173,14 +167,13 @@ export class GameScene implements Scene {
 
     this.bulletManager.update(dt);
 
-    // BulletManager.processCollisions currently takes a single PlayerTank
-    // (per the existing public signature — modifying it is out of scope for
-    // Task 10). P1 is always present, so it is the canonical damage target
-    // here. P2 and ally damage detection piggy-backs on `playerHit` plus a
-    // direct active-flag check, which is the closest behaviour achievable
-    // without editing BulletManager.
+    // BulletManager now resolves damage for every friendly unit (P1, P2, ally).
+    const friendlyTanks: Tank[] = [
+      ...this.players,
+      ...(this.ally && this.ally.active ? [this.ally] : []),
+    ];
     const result = this.bulletManager.processCollisions(
-      this.map, this.players[0], this.enemyManager.activeEnemies,
+      this.map, friendlyTanks, this.enemyManager.activeEnemies,
     );
 
     this.score += result.score;
@@ -188,9 +181,7 @@ export class GameScene implements Scene {
       this.levelScore[type as EnemyType] += count as number;
     }
 
-    if (result.playerHit || (this.ally && !this.ally.active && this.ally.lives <= 0)) {
-      // Only enter friendly-hit flow when P1 took damage OR the ally has
-      // somehow been knocked out (e.g. via direct active flag manipulation).
+    if (result.friendlyHitIndex !== null) {
       this.handleFriendlyHit();
     }
 
