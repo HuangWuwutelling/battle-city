@@ -10,8 +10,8 @@ export const CELL_COLS = 26;        // 26 cells wide
 export const CELL_ROWS = 26;        // 26 cells tall
 
 // Canvas
-export const CANVAS_WIDTH = 1024;
-export const CANVAS_HEIGHT = 832;
+export const CANVAS_WIDTH = 512;
+export const CANVAS_HEIGHT = 416;
 export const GAME_AREA_WIDTH = 416;   // 26 × 16
 export const GAME_AREA_HEIGHT = 416;  // 26 × 16
 export const HUD_WIDTH = 96;
