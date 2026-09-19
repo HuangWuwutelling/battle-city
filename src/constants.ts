@@ -10,8 +10,8 @@ export const CELL_COLS = 26;        // 26 cells wide
 export const CELL_ROWS = 26;        // 26 cells tall
 
 // Canvas
-export const CANVAS_WIDTH = 512;
-export const CANVAS_HEIGHT = 416;
+export const CANVAS_WIDTH = 1024;
+export const CANVAS_HEIGHT = 832;
 export const GAME_AREA_WIDTH = 416;   // 26 × 16
 export const GAME_AREA_HEIGHT = 416;  // 26 × 16
 export const HUD_WIDTH = 96;
@@ -71,7 +71,7 @@ export const PLAYER_SPAWN = { x: 8, y: 24 };
 export const PLAYER1_SPAWN = PLAYER_SPAWN;       // 别名，便于多人语义一致
 export const PLAYER2_SPAWN = { x: 16, y: 24 };
 export const PLAYER_SPAWN_COOP = { x: 8, y: 24 };
-export const ALLY_SPAWN = { x: 4, y: 24 };
+export const ALLY_SPAWN = { x: 20, y: 24 };
 export const EAGLE_POS = { x: 12, y: 24 };
 
 // Timings

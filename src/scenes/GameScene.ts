@@ -1,6 +1,7 @@
 import {
   GAME_AREA_WIDTH, CANVAS_HEIGHT, HUD_WIDTH,
   PLAYER_SPAWN, PLAYER1_SPAWN, PLAYER2_SPAWN, PLAYER_SPAWN_COOP, ALLY_SPAWN, CELL_SIZE, COLORS,
+  PLAYER_LIVES, ALLY_LIVES,
 } from '../constants';
 import { Difficulty, EnemyType, GameMode, LevelData, LevelScore } from '../types';
 import { Scene } from './Scene';
@@ -115,6 +116,17 @@ export class GameScene implements Scene {
       this.ally.y = ALLY_SPAWN.y * CELL_SIZE;
       this.ally.active = true;
       this.ally.respawn(ALLY_SPAWN.x * CELL_SIZE, ALLY_SPAWN.y * CELL_SIZE);
+    }
+
+    // Reset lives to the full pool on every new level start, so lives do not
+    // carry over from the previous level. Skipped when resuming from save.
+    if (params?.resumeFromSave !== true) {
+      for (const player of this.players) {
+        player.lives = PLAYER_LIVES;
+      }
+      if (this.ally) {
+        this.ally.lives = ALLY_LIVES;
+      }
     }
   }
 
