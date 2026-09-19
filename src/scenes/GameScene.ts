@@ -99,7 +99,7 @@ export class GameScene implements Scene {
         COLORS.player2Track,
       ));
     } else {
-      const spawn = this.mode === 'coop' ? PLAYER_SPAWN_COOP : PLAYER_SPAWN;
+      const spawn = this.spawnPointFor(0);
       this.players.push(new PlayerTank(
         spawn.x * CELL_SIZE,
         spawn.y * CELL_SIZE,
