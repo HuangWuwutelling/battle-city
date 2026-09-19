@@ -7,6 +7,7 @@ import { GameMap } from './Map';
 import { rectsOverlap } from './Collision';
 import { PixelArt } from '../rendering/PixelArt';
 import { Audio } from './Audio';
+import type { BulletSnapshot } from './Snapshot';
 
 export interface Explosion {
   x: number;
@@ -22,11 +23,18 @@ export class BulletManager {
 
   /**
    * @param source 子弹来源，用于选择开火音效。默认 'player'（保持向后兼容）。
+   * @param options.silent 跳过音效。供 snapshot 恢复使用，避免暂停→恢复时
+   *     误播一段不存在的"开火"声。其它语义与默认一致。
    */
-  addBullet(bullet: Bullet, source: 'player' | 'ally' | 'enemy' = 'player'): void {
+  addBullet(
+    bullet: Bullet,
+    source: 'player' | 'ally' | 'enemy' = 'player',
+    options: { silent?: boolean } = {},
+  ): void {
     if (!this.bulletSet.has(bullet)) {
       this.bullets.push(bullet);
       this.bulletSet.add(bullet);
+      if (options.silent) return;
       // 新子弹入队时立即播放开火音效
       if (source === 'ally') {
         Audio.playAllyShoot();
@@ -40,6 +48,16 @@ export class BulletManager {
 
   hasBullet(bullet: Bullet): boolean {
     return this.bulletSet.has(bullet);
+  }
+
+  /**
+   * Snapshot-only accessor: returns the internal bullet list in insertion
+   * order (stable across a deserialize round-trip). Used by GameScene to
+   * pass enemy-owned bullets to EnemyManager.applySnapshot() in the right
+   * order. Not used during gameplay.
+   */
+  getBullets(): Bullet[] {
+    return [...this.bullets];
   }
 
   update(dt: number): void {
@@ -221,5 +239,38 @@ export class BulletManager {
     for (const exp of this.explosions) {
       PixelArt.drawExplosion(ctx, exp.x, exp.y, exp.frame);
     }
+  }
+
+  /**
+   * Serialize the bullet list. Replaces the previous
+   * `(this.bulletManager as unknown as { bullets: Bullet[] }).bullets` cast
+   * in GameScene.saveSnapshot.
+   */
+  serialize(): BulletSnapshot[] {
+    return this.bullets.map(b => ({
+      x: b.x,
+      y: b.y,
+      direction: b.direction,
+      speed: b.speed,
+      ownerIsPlayer: b.ownerIsPlayer,
+      active: b.active,
+    }));
+  }
+
+  /**
+   * Static factory: build a fresh BulletManager and re-add every snapshotted
+   * bullet in order. Restore is silent (no audio) — see `addBullet`'s
+   * `silent` option. The order of `snapshots` is preserved (a stable sort),
+   * which matters for enemy bullets: EnemyManager.deserialize matches them
+   * to enemies positionally.
+   */
+  static deserialize(snapshots: BulletSnapshot[]): BulletManager {
+    const mgr = new BulletManager();
+    for (const b of snapshots) {
+      const bullet = new Bullet(b.x, b.y, b.direction, b.speed, b.ownerIsPlayer);
+      bullet.active = b.active;
+      mgr.addBullet(bullet, b.ownerIsPlayer ? 'player' : 'enemy', { silent: true });
+    }
+    return mgr;
   }
 }

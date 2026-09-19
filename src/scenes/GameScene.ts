@@ -4,7 +4,7 @@ import {
   CELL_SIZE, COLORS, DIFFICULTY,
   PLAYER_LIVES, ALLY_LIVES,
 } from '../constants';
-import { Difficulty, Direction, EnemyType, GameMode, LevelData, LevelScore, Point, TileType } from '../types';
+import { Difficulty, EnemyType, GameMode, LevelData, LevelScore, Point } from '../types';
 import { Scene } from './Scene';
 import { Input } from '../systems/Input';
 import { Game } from '../Game';
@@ -13,8 +13,6 @@ import { BulletManager } from '../systems/BulletManager';
 import { EnemyManager } from '../systems/EnemyManager';
 import { PlayerTank } from '../entities/PlayerTank';
 import { AlliedTank } from '../entities/AlliedTank';
-import { EnemyTank } from '../entities/EnemyTank';
-import { Bullet } from '../entities/Bullet';
 import { Tank } from '../entities/Tank';
 import { Save, GameSnapshot } from '../systems/Save';
 import { Audio } from '../systems/Audio';
@@ -350,11 +348,13 @@ export class GameScene implements Scene {
 
   /**
    * 将当前完整游戏状态写入 localStorage。
-   * 仅持久化存活的敌人；剩余数量由 EnemyManager.remainingEnemies 计算。
+   * 每一层 (地图 / 玩家 / 友军 / 敌人 / 子弹) 由各自的 `serialize()` 贡献，
+   * 所以这里没有任何 `as unknown as { ... }` 强转。新增字段时 TypeScript
+   * 会在对应的实体类里报错，保证快照 schema 与类保持同步。
    */
   private saveSnapshot(): void {
     const snapshot: GameSnapshot = {
-      version: 1,
+      version: 2,
       savedAt: Date.now(),
       levelIndex: this.levelIndex,
       mode: this.mode,
@@ -363,59 +363,11 @@ export class GameScene implements Scene {
       levelScore: { ...this.levelScore },
       isCustomLevel: this.isCustomLevel,
       customLevelData: this.customLevelData,
-
-      map: {
-        cells: this.map.getCellGrid().map(row => row.map(cell => cell as number)),
-        eagleAlive: this.map.isEagleAlive(),
-      },
-
-      players: this.players.map(p => ({
-        playerIndex: p.playerIndex,
-        x: p.x,
-        y: p.y,
-        direction: p.direction,
-        lives: p.lives,
-        hp: p.hp,
-        active: p.active,
-        invincibleTimer: (p as unknown as { invincibleTimer: number }).invincibleTimer,
-      })),
-
-      ally: this.ally ? {
-        x: this.ally.x,
-        y: this.ally.y,
-        direction: this.ally.direction,
-        lives: this.ally.lives,
-        hp: this.ally.hp,
-        active: this.ally.active,
-        directionTimer: (this.ally as unknown as { directionTimer: number }).directionTimer,
-        nextDirectionChange: (this.ally as unknown as { nextDirectionChange: number }).nextDirectionChange,
-      } : null,
-
-      enemies: this.enemyManager.activeEnemies
-        .filter(e => e.active)
-        .map(e => ({
-          type: e.type,
-          x: e.x,
-          y: e.y,
-          direction: e.direction,
-          hp: e.hp,
-          active: e.active,
-          directionTimer: (e as unknown as { directionTimer: number }).directionTimer,
-          nextDirectionChange: (e as unknown as { nextDirectionChange: number }).nextDirectionChange,
-          shootTimer: (e as unknown as { shootTimer: number }).shootTimer,
-          flashTimer: (e as unknown as { flashTimer: number }).flashTimer,
-          hasBullet: e.activeBullets.length > 0,
-        })),
-      remainingEnemies: this.enemyManager.remainingEnemies,
-
-      bullets: ((this.bulletManager as unknown as { bullets: Bullet[] }).bullets).map(b => ({
-        x: b.x,
-        y: b.y,
-        direction: b.direction,
-        speed: b.speed,
-        ownerIsPlayer: b.ownerIsPlayer,
-        active: b.active,
-      })),
+      map: this.map.serialize(),
+      players: this.players.map(p => p.serialize()),
+      ally: this.ally ? this.ally.serialize() : null,
+      enemies: this.enemyManager.serialize(),
+      bullets: this.bulletManager.serialize(),
     };
 
     Save.saveSnapshot(snapshot);
@@ -439,90 +391,18 @@ export class GameScene implements Scene {
     this.paused = true;
 
     // 地图：从快照直接覆盖单元（不走 13×13→26×26 展开），并恢复基地存活标志
-    this.map = new GameMap();
-    this.map.setCellGrid(snapshot.map.cells as unknown as TileType[][]);
-    (this.map as unknown as { eagleAlive: boolean }).eagleAlive = snapshot.map.eagleAlive;
+    this.map = GameMap.deserialize(snapshot.map);
 
-    // 管理器
-    this.bulletManager = new BulletManager();
-    this.enemyManager = new EnemyManager();
+    // 子弹必须先重建：敌人坦克需要按出现顺序拿到自己"持有"的子弹
+    this.bulletManager = BulletManager.deserialize(snapshot.bullets);
+    const enemyBulletsInOrder = this.bulletManager.getBullets().filter(b => !b.ownerIsPlayer);
 
-    // 先创建所有子弹并加入 BulletManager
-    const restoredBullets: Bullet[] = [];
-    for (const b of snapshot.bullets) {
-      const bullet = new Bullet(b.x, b.y, b.direction, b.speed, b.ownerIsPlayer);
-      bullet.active = b.active;
-      restoredBullets.push(bullet);
-      this.bulletManager.addBullet(bullet);
-    }
+    // 敌人：activeEnemies + 各自的子弹归属 + 速度倍率
+    this.enemyManager = EnemyManager.deserialize(snapshot.enemies, enemyBulletsInOrder);
 
-    // 玩家
-    this.players = [];
-    for (const p of snapshot.players) {
-      const colors = p.playerIndex === 0
-        ? { body: COLORS.player1Body, track: COLORS.player1Track }
-        : { body: COLORS.player2Body, track: COLORS.player2Track };
-      const player = new PlayerTank(p.x, p.y, p.playerIndex, colors.body, colors.track);
-      player.direction = p.direction;
-      player.lives = p.lives;
-      player.hp = p.hp;
-      player.active = p.active;
-      (player as unknown as { invincibleTimer: number }).invincibleTimer = p.invincibleTimer;
-      this.players.push(player);
-    }
-
-    // 友军
-    this.ally = null;
-    if (snapshot.ally) {
-      const a = snapshot.ally;
-      const ally = new AlliedTank(a.x, a.y);
-      ally.direction = a.direction;
-      ally.lives = a.lives;
-      ally.hp = a.hp;
-      ally.active = a.active;
-      (ally as unknown as { directionTimer: number }).directionTimer = a.directionTimer;
-      (ally as unknown as { nextDirectionChange: number }).nextDirectionChange = a.nextDirectionChange;
-      this.ally = ally;
-    }
-
-    // 敌人：重建 activeEnemies + 各自的子弹归属 + 速度倍率
-    const em = this.enemyManager as unknown as {
-      activeEnemies: EnemyTank[];
-      spawnQueue: Array<{ type: EnemyType }>;
-      spawnTimer: number;
-      currentSpawnIndex: number;
-      spawning: unknown;
-      currentSpeedMult: number;
-    };
-    const speedMult = DIFFICULTY[snapshot.difficulty].speedMult;
-    em.currentSpeedMult = speedMult;
-    em.spawning = null;
-    em.spawnTimer = 0;
-
-    const enemyBulletsInOrder = restoredBullets.filter(b => !b.ownerIsPlayer);
-    let enemyBulletCursor = 0;
-    for (const e of snapshot.enemies) {
-      const enemy = new EnemyTank(e.x, e.y, e.type, speedMult);
-      enemy.direction = e.direction;
-      enemy.hp = e.hp;
-      enemy.active = e.active;
-      (enemy as unknown as { directionTimer: number }).directionTimer = e.directionTimer;
-      (enemy as unknown as { nextDirectionChange: number }).nextDirectionChange = e.nextDirectionChange;
-      (enemy as unknown as { shootTimer: number }).shootTimer = e.shootTimer;
-      (enemy as unknown as { flashTimer: number }).flashTimer = e.flashTimer;
-      if (e.hasBullet && enemyBulletCursor < enemyBulletsInOrder.length) {
-        // bullets is protected on Tank; cast through unknown like the prior
-        // single-slot pattern did, since snapshot restore needs to inject.
-        (enemy as unknown as { bullets: Bullet[] }).bullets.push(enemyBulletsInOrder[enemyBulletCursor++]);
-      }
-      em.activeEnemies.push(enemy);
-    }
-
-    // 用占位类型重建 spawnQueue，使 remainingEnemies 计数与快照一致
-    const activeCount = em.activeEnemies.filter(e => e.active).length;
-    const spawnQueueLen = Math.max(0, snapshot.remainingEnemies - activeCount);
-    em.spawnQueue = new Array(spawnQueueLen).fill({ type: 'basic' });
-    em.currentSpawnIndex = em.activeEnemies.length;
+    // 玩家 / 友军：每个实体自己负责 deserialize
+    this.players = snapshot.players.map(snap => PlayerTank.deserialize(snap));
+    this.ally = snapshot.ally ? AlliedTank.deserialize(snapshot.ally) : null;
   }
 
   render(ctx: CanvasRenderingContext2D): void {

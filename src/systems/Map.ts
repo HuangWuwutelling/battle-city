@@ -7,6 +7,7 @@ import {
   TileType, LevelData, TILE_EMPTY, TILE_BRICK, TILE_STEEL, TILE_GRASS,
 } from '../types';
 import { PixelArt } from '../rendering/PixelArt';
+import type { MapSnapshot } from './Snapshot';
 
 export class GameMap {
   private cells: TileType[][] = [];
@@ -165,5 +166,35 @@ export class GameMap {
 
   setCellGrid(grid: TileType[][]): void {
     this.cells = grid.map(row => [...row]);
+  }
+
+  /**
+   * Typed snapshot accessor. Replaces the previous
+   * `(this.map as unknown as { eagleAlive: boolean }).eagleAlive` cast in
+   * GameScene.saveSnapshot — `eagleAlive` stays private (gameplay state,
+   * not part of the public surface) but is now read through this typed
+   * method that the compiler verifies stays in sync with MapSnapshot.
+   */
+  serialize(): MapSnapshot {
+    return {
+      cells: this.cells.map(row => [...row]),
+      eagleAlive: this.eagleAlive,
+    };
+  }
+
+  /**
+   * Restore from a typed snapshot. Reverse of `serialize()`. Replaces the
+   * `(this.map as unknown as { eagleAlive: boolean }).eagleAlive = ...`
+   * cast in GameScene.restoreFromSnapshot.
+   */
+  applySnapshot(snap: MapSnapshot): void {
+    this.cells = snap.cells.map(row => [...row]);
+    this.eagleAlive = snap.eagleAlive;
+  }
+
+  static deserialize(snap: MapSnapshot): GameMap {
+    const map = new GameMap();
+    map.applySnapshot(snap);
+    return map;
   }
 }

@@ -8,6 +8,7 @@ import { Direction, Point } from '../types';
 import { Tank } from './Tank';
 import { Bullet } from './Bullet';
 import { GameMap } from '../systems/Map';
+import type { AlliedTankSnapshot } from '../systems/Snapshot';
 
 /**
  * 合作模式下的 AI 友军坦克
@@ -18,6 +19,7 @@ import { GameMap } from '../systems/Map';
  *   3. 其他情况 → 随机游走 + 遇墙换方向
  */
 export class AlliedTank extends Tank {
+  readonly kind = 'ally' as const;
   lives: number;
   private directionTimer = 0;
   private nextDirectionChange: number;
@@ -185,5 +187,39 @@ export class AlliedTank extends Tank {
   render(ctx: CanvasRenderingContext2D): void {
     if (!this.active) return;
     super.render(ctx);
+  }
+
+  /**
+   * Serialize this tank's full state into a typed snapshot. AI timers
+   * (`directionTimer`, `nextDirectionChange`, `shootTimer`) are private
+   * fields — serialize()/deserialize() defined inside the class can read
+   * and write them directly without the `as unknown as { ... }` cast that
+   * GameScene previously needed.
+   */
+  serialize(): AlliedTankSnapshot {
+    return {
+      kind: 'ally',
+      x: this.x,
+      y: this.y,
+      direction: this.direction,
+      lives: this.lives,
+      hp: this.hp,
+      active: this.active,
+      directionTimer: this.directionTimer,
+      nextDirectionChange: this.nextDirectionChange,
+      shootTimer: this.shootTimer,
+    };
+  }
+
+  static deserialize(snap: AlliedTankSnapshot): AlliedTank {
+    const tank = new AlliedTank(snap.x, snap.y);
+    tank.direction = snap.direction;
+    tank.lives = snap.lives;
+    tank.hp = snap.hp;
+    tank.active = snap.active;
+    tank.directionTimer = snap.directionTimer;
+    tank.nextDirectionChange = snap.nextDirectionChange;
+    tank.shootTimer = snap.shootTimer;
+    return tank;
   }
 }

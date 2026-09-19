@@ -9,6 +9,7 @@ import { EnemyType, Direction, Point } from '../types';
 import { Tank } from './Tank';
 import { Bullet } from './Bullet';
 import { GameMap } from '../systems/Map';
+import type { EnemyTankSnapshot } from '../systems/Snapshot';
 
 const ENEMY_CONFIGS: Record<EnemyType, { speed: number; bulletSpeed: number; hp: number; bodyColor: string; score: number }> = {
   basic: { speed: ENEMY_SPEED_BASIC, bulletSpeed: ENEMY_BULLET_SPEED, hp: 1, bodyColor: COLORS.enemyBasic, score: 100 },
@@ -18,6 +19,7 @@ const ENEMY_CONFIGS: Record<EnemyType, { speed: number; bulletSpeed: number; hp:
 };
 
 export class EnemyTank extends Tank {
+  readonly kind = 'enemy' as const;
   readonly type: EnemyType;
   readonly bulletSpeed: number;
   readonly score: number;
@@ -99,6 +101,53 @@ export class EnemyTank extends Tank {
   takeDamage(amount: number = 1): boolean {
     this.flashTimer = 0.2;
     return super.takeDamage(amount);
+  }
+
+  /**
+   * Serialize this tank's full state into a typed snapshot. `hasBullet`
+   * is derived from the private `bullets` array via the public
+   * `activeBullets` getter — we count active bullets to preserve the
+   * original semantics where one enemy can carry exactly one bullet.
+   */
+  serialize(): EnemyTankSnapshot {
+    return {
+      kind: 'enemy',
+      type: this.type,
+      x: this.x,
+      y: this.y,
+      direction: this.direction,
+      hp: this.hp,
+      active: this.active,
+      directionTimer: this.directionTimer,
+      nextDirectionChange: this.nextDirectionChange,
+      shootTimer: this.shootTimer,
+      flashTimer: this.flashTimer,
+      hasBullet: this.activeBullets.length > 0,
+    };
+  }
+
+  /**
+   * Static factory. `speedMult` controls the effective speed / bullet
+   * speed for this enemy — it comes from the EnemyManager's
+   * `currentSpeedMult`, which is itself part of the snapshot, so the
+   * caller is responsible for passing the right value. If `snap.hasBullet`
+   * is true, pass the corresponding restored bullet via `bullet`; it will
+   * be attached to this enemy's in-flight bullet list. Defined inside
+   * EnemyTank so it can touch the protected `bullets` field without a cast.
+   */
+  static deserialize(snap: EnemyTankSnapshot, speedMult: number, bullet?: Bullet): EnemyTank {
+    const enemy = new EnemyTank(snap.x, snap.y, snap.type, speedMult);
+    enemy.direction = snap.direction;
+    enemy.hp = snap.hp;
+    enemy.active = snap.active;
+    enemy.directionTimer = snap.directionTimer;
+    enemy.nextDirectionChange = snap.nextDirectionChange;
+    enemy.shootTimer = snap.shootTimer;
+    enemy.flashTimer = snap.flashTimer;
+    if (bullet) {
+      enemy.bullets.push(bullet);
+    }
+    return enemy;
   }
 
   render(ctx: CanvasRenderingContext2D): void {

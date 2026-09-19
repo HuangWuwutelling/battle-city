@@ -7,10 +7,17 @@ import { Tank } from './Tank';
 import { Bullet } from './Bullet';
 import { Input } from '../systems/Input';
 import { GameMap } from '../systems/Map';
+import type { PlayerTankSnapshot } from '../systems/Snapshot';
 
 export class PlayerTank extends Tank {
+  readonly kind = 'player' as const;
   readonly playerIndex: 0 | 1;
   lives: number;
+  // `invincibleTimer` was previously `private` and only reachable via an
+  // `as unknown as { invincibleTimer: number }` cast in GameScene.saveSnapshot.
+  // It stays out of the public surface (still encapsulated), but is now
+  // read/written exclusively through `serialize()` / `static deserialize()`,
+  // which the compiler can verify stays in sync with the snapshot schema.
   private invincibleTimer = 0;
   private sliding = false;
   private slideDirection: Direction = 'up';
@@ -30,6 +37,45 @@ export class PlayerTank extends Tank {
 
   get isInvincible(): boolean {
     return this.invincibleTimer > 0;
+  }
+
+  /**
+   * Serialize this tank's full state into a typed snapshot. Defined inside
+   * the class so it can read private fields (e.g. `invincibleTimer`)
+   * without any cast. Adding a new instance field produces a TS error here
+   * until it's added to `PlayerTankSnapshot` — that's the contract that
+   * makes the snapshot schema self-enforcing.
+   */
+  serialize(): PlayerTankSnapshot {
+    return {
+      kind: 'player',
+      playerIndex: this.playerIndex,
+      x: this.x,
+      y: this.y,
+      direction: this.direction,
+      lives: this.lives,
+      hp: this.hp,
+      active: this.active,
+      invincibleTimer: this.invincibleTimer,
+    };
+  }
+
+  /**
+   * Static factory: build a fresh PlayerTank from a snapshot. The static
+   * method body has access to private instance members of PlayerTank (TS
+   * private is class-level), so no cast is needed to set `invincibleTimer`.
+   */
+  static deserialize(snap: PlayerTankSnapshot): PlayerTank {
+    const colors = snap.playerIndex === 0
+      ? { body: COLORS.player1Body, track: COLORS.player1Track }
+      : { body: COLORS.player2Body, track: COLORS.player2Track };
+    const tank = new PlayerTank(snap.x, snap.y, snap.playerIndex, colors.body, colors.track);
+    tank.direction = snap.direction;
+    tank.lives = snap.lives;
+    tank.hp = snap.hp;
+    tank.active = snap.active;
+    tank.invincibleTimer = snap.invincibleTimer;
+    return tank;
   }
 
   update(dt: number, input: Input, map: GameMap, allTanks: Tank[]): Bullet | null {
