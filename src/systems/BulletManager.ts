@@ -118,12 +118,13 @@ export class BulletManager {
 
       if (bullet.ownerIsPlayer) {
         // Player bullet: bullet-vs-bullet sub-loop, then enemy-collision sub-loop.
+        // Note: original behavior — no break; the player bullet keeps sweeping
+        // through activeEnemyBullets in case its rect overlaps more than one.
         for (const eb of activeEnemyBullets) {
           if (!eb.active) continue;
           if (rectsOverlap(bullet.rect, eb.rect)) {
             bullet.destroy();
             eb.destroy();
-            break; // player bullet is consumed
           }
         }
         if (!bullet.active) continue;
