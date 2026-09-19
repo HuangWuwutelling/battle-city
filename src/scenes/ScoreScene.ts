@@ -1,8 +1,9 @@
 import { CANVAS_WIDTH, CANVAS_HEIGHT, COLORS, SCORE_BASIC, SCORE_FAST, SCORE_POWER, SCORE_ARMOR } from '../constants';
-import { LevelScore } from '../types';
+import { Difficulty, LevelScore } from '../types';
 import { Scene } from './Scene';
 import { Input } from '../systems/Input';
 import { Game } from '../Game';
+import { Save } from '../systems/Save';
 
 export class ScoreScene implements Scene {
   private game: Game;
@@ -10,6 +11,7 @@ export class ScoreScene implements Scene {
   private levelScore: LevelScore = { basic: 0, fast: 0, power: 0, armor: 0 };
   private totalScore = 0;
   private isCustomLevel = false;
+  private difficulty: Difficulty = 'medium';
   private timer = 0;
 
   constructor(game: Game) {
@@ -21,7 +23,13 @@ export class ScoreScene implements Scene {
     this.levelScore = (params?.levelScore as LevelScore) ?? { basic: 0, fast: 0, power: 0, armor: 0 };
     this.totalScore = (params?.totalScore as number) ?? 0;
     this.isCustomLevel = (params?.isCustomLevel as boolean) ?? false;
+    this.difficulty = (params?.difficulty as Difficulty) ?? 'medium';
     this.timer = 0;
+
+    // 通关内置关卡时存进度（保留难度偏好）
+    if (!this.isCustomLevel) {
+      Save.recordLevelClear(this.levelIndex, this.totalScore, this.difficulty);
+    }
   }
 
   exit(): void {}
@@ -31,7 +39,10 @@ export class ScoreScene implements Scene {
       if (this.isCustomLevel) {
         this.game.switchScene('menu');
       } else {
-        this.game.switchScene('stageIntro', { levelIndex: this.levelIndex + 1 });
+        this.game.switchScene('stageIntro', {
+          levelIndex: this.levelIndex + 1,
+          difficulty: this.difficulty,
+        });
       }
     }
   }
@@ -39,7 +50,10 @@ export class ScoreScene implements Scene {
   update(dt: number): void {
     this.timer += dt;
     if (this.timer >= 5 && !this.isCustomLevel) {
-      this.game.switchScene('stageIntro', { levelIndex: this.levelIndex + 1 });
+      this.game.switchScene('stageIntro', {
+        levelIndex: this.levelIndex + 1,
+        difficulty: this.difficulty,
+      });
     }
   }
 

@@ -66,6 +66,7 @@ export class Game {
     this.accumulator += dt;
 
     while (this.accumulator >= TICK_RATE) {
+      this.input.refreshGamepads();
       if (this.currentScene) {
         this.currentScene.handleInput(this.input);
         this.currentScene.update(TICK_RATE);
