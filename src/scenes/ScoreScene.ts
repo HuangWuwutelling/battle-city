@@ -92,7 +92,7 @@ export class ScoreScene implements Scene {
     y += 30;
 
     ctx.font = 'bold 18px monospace';
-    ctx.fillStyle = COLORS.playerBody;
+    ctx.fillStyle = COLORS.player1Body;
     ctx.fillText(`TOTAL    ${this.totalScore}`, cx - 80, y);
 
     ctx.font = '12px monospace';

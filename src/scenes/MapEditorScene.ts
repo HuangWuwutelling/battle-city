@@ -341,7 +341,7 @@ export class MapEditorScene implements Scene {
     ctx.fillText('E', eagleX, eagleY + 4);
 
     // Player spawn
-    ctx.fillStyle = COLORS.playerBody;
+    ctx.fillStyle = COLORS.player1Body;
     const playerX = 4 * TILE_SIZE + TILE_SIZE / 2;
     const playerY = TOOLBAR_HEIGHT + 12 * TILE_SIZE + TILE_SIZE / 2;
     ctx.fillText('P', playerX, playerY + 4);
@@ -386,7 +386,7 @@ export class MapEditorScene implements Scene {
       ctx.fillStyle = isSelected ? '#606060' : '#404040';
       ctx.fillRect(sx + 8, by, SIDEBAR_WIDTH - 16, btnSize);
       if (isSelected) {
-        ctx.strokeStyle = COLORS.playerBody;
+        ctx.strokeStyle = COLORS.player1Body;
         ctx.lineWidth = 2;
         ctx.strokeRect(sx + 8, by, SIDEBAR_WIDTH - 16, btnSize);
       }
@@ -410,7 +410,7 @@ export class MapEditorScene implements Scene {
     if (this.message) {
       ctx.fillStyle = 'rgba(0,0,0,0.7)';
       ctx.fillRect(EDITOR_AREA_SIZE / 2 - 80, TOOLBAR_HEIGHT + EDITOR_AREA_SIZE / 2 - 15, 160, 30);
-      ctx.fillStyle = COLORS.playerBody;
+      ctx.fillStyle = COLORS.player1Body;
       ctx.font = '14px monospace';
       ctx.textAlign = 'center';
       ctx.fillText(this.message, EDITOR_AREA_SIZE / 2, TOOLBAR_HEIGHT + EDITOR_AREA_SIZE / 2 + 5);

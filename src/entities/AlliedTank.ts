@@ -202,7 +202,7 @@ export class AlliedTank extends Tank {
       // 仅在朝敌人方向时射击（避免乱开枪暴露位置）
       if (this.hasEnemyInDirection(this.direction, enemies)) {
         const bp = this.getBulletSpawnPoint();
-        newBullet = new Bullet(bp.x, bp.y, this.direction, ALLY_BULLET_SPEED, 'player');
+        newBullet = new Bullet(bp.x, bp.y, this.direction, ALLY_BULLET_SPEED, true);
         this.bullets.push(newBullet);
         this.shootTimer = ALLY_SHOOT_COOLDOWN + Math.random() * 0.3;
       } else {
