@@ -5,6 +5,7 @@ import {
 } from '../constants';
 import {
   TileType, LevelData, TILE_EMPTY, TILE_BRICK, TILE_STEEL, TILE_GRASS,
+  TILE_RIVER, TILE_ICE,
 } from '../types';
 import { PixelArt } from '../rendering/PixelArt';
 import type { MapSnapshot } from './Snapshot';
@@ -100,16 +101,16 @@ export class GameMap {
 
   isPassable(col: number, row: number): boolean {
     const type = this.getCell(col, row);
-    return type === TILE_EMPTY || type === TILE_GRASS || type === 5; // empty, grass, ice
+    return type === TILE_EMPTY || type === TILE_GRASS || type === TILE_ICE;
   }
 
   isBulletPassable(col: number, row: number): boolean {
     const type = this.getCell(col, row);
-    return type === TILE_EMPTY || type === TILE_GRASS || type === 4 || type === 5; // empty, grass, river, ice
+    return type === TILE_EMPTY || type === TILE_GRASS || type === TILE_RIVER || type === TILE_ICE;
   }
 
   isIce(col: number, row: number): boolean {
-    return this.getCell(col, row) === 5;
+    return this.getCell(col, row) === TILE_ICE;
   }
 
   destroyCell(col: number, row: number): void {
