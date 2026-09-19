@@ -25,6 +25,10 @@ export type Direction = 'up' | 'down' | 'left' | 'right';
 
 export type EnemyType = 'basic' | 'fast' | 'power' | 'armor';
 
+export type Difficulty = 'easy' | 'medium' | 'hard';
+
+export type GameMode = 'single' | 'coop' | 'versus';
+
 export interface EnemyConfig {
   type: EnemyType;
 }
