@@ -17,6 +17,7 @@ import { EnemyTank } from '../entities/EnemyTank';
 import { Bullet } from '../entities/Bullet';
 import { Tank } from '../entities/Tank';
 import { Save, GameSnapshot } from '../systems/Save';
+import { Audio } from '../systems/Audio';
 
 import level01 from '../data/levels/level-01.json';
 import level02 from '../data/levels/level-02.json';
@@ -52,6 +53,11 @@ export class GameScene implements Scene {
     if (params?.snapshot) {
       this.restoreFromSnapshot(params.snapshot as GameSnapshot);
       return;
+    }
+
+    // 新关卡开始音效（从存档恢复时不重放）
+    if (params?.resumeFromSave !== true) {
+      Audio.playLevelStart();
     }
 
     this.levelIndex = (params?.levelIndex as number) ?? 0;
@@ -174,7 +180,7 @@ export class GameScene implements Scene {
     for (const player of this.players) {
       const newBullet = player.update(dt, this.input, this.map, allTanks);
       if (newBullet) {
-        this.bulletManager.addBullet(newBullet);
+        this.bulletManager.addBullet(newBullet, 'player');
       }
     }
 
@@ -184,7 +190,7 @@ export class GameScene implements Scene {
         dt, this.map, allTanks, this.enemyManager.activeEnemies,
       );
       if (newAllyBullet) {
-        this.bulletManager.addBullet(newAllyBullet);
+        this.bulletManager.addBullet(newAllyBullet, 'ally');
       }
     }
 
@@ -195,7 +201,7 @@ export class GameScene implements Scene {
     // Pull any newly spawned enemy bullets into the bullet manager
     for (const enemy of this.enemyManager.activeEnemies) {
       if (enemy.bullet && enemy.bullet.active && !this.bulletManager.hasBullet(enemy.bullet)) {
-        this.bulletManager.addBullet(enemy.bullet);
+        this.bulletManager.addBullet(enemy.bullet, 'enemy');
       }
     }
 

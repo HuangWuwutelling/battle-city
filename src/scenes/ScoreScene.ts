@@ -4,6 +4,7 @@ import { Scene } from './Scene';
 import { Input } from '../systems/Input';
 import { Game } from '../Game';
 import { Save } from '../systems/Save';
+import { Audio } from '../systems/Audio';
 
 export class ScoreScene implements Scene {
   private game: Game;
@@ -30,6 +31,9 @@ export class ScoreScene implements Scene {
     if (!this.isCustomLevel) {
       Save.recordLevelClear(this.levelIndex, this.totalScore, this.difficulty);
     }
+
+    // 关卡完成音效
+    Audio.playLevelComplete();
   }
 
   exit(): void {}

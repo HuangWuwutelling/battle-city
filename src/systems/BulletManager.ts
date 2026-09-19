@@ -7,6 +7,7 @@ import { EnemyTank } from '../entities/EnemyTank';
 import { GameMap } from './Map';
 import { rectsOverlap } from './Collision';
 import { PixelArt } from '../rendering/PixelArt';
+import { Audio } from './Audio';
 
 export interface Explosion {
   x: number;
@@ -20,10 +21,21 @@ export class BulletManager {
   private bulletSet = new WeakSet<Bullet>();
   explosions: Explosion[] = [];
 
-  addBullet(bullet: Bullet): void {
+  /**
+   * @param source 子弹来源，用于选择开火音效。默认 'player'（保持向后兼容）。
+   */
+  addBullet(bullet: Bullet, source: 'player' | 'ally' | 'enemy' = 'player'): void {
     if (!this.bulletSet.has(bullet)) {
       this.bullets.push(bullet);
       this.bulletSet.add(bullet);
+      // 新子弹入队时立即播放开火音效
+      if (source === 'ally') {
+        Audio.playAllyShoot();
+      } else if (source === 'enemy') {
+        Audio.playEnemyShoot();
+      } else {
+        Audio.playShoot();
+      }
     }
   }
 
@@ -93,6 +105,7 @@ export class BulletManager {
             this.addExplosion(enemy.x, enemy.y);
             score += enemy.score;
             enemyKills[enemy.type] = (enemyKills[enemy.type] || 0) + 1;
+            Audio.playTankExplode();
           }
           break;
         }
@@ -114,6 +127,7 @@ export class BulletManager {
           if (destroyed) {
             this.addExplosion(tank.x, tank.y);
             friendlyHitIndex = i;
+            Audio.playTankExplode();
           }
           break; // this bullet is consumed
         }
@@ -134,6 +148,7 @@ export class BulletManager {
         map.destroyEagle();
         eagleHit = true;
         this.addExplosion(EAGLE_POS.x * CELL_SIZE, EAGLE_POS.y * CELL_SIZE);
+        Audio.playEagleDestroyed();
       }
     }
 
@@ -154,10 +169,12 @@ export class BulletManager {
           if (cellType === TILE_BRICK) {
             map.destroyCell(col, row);
             bullet.destroy();
+            Audio.playBrickBreak();
             return;
           }
           if (cellType === TILE_STEEL) {
             bullet.destroy();
+            Audio.playSteelHit();
             return;
           }
         }

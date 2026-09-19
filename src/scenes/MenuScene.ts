@@ -4,6 +4,7 @@ import { Scene } from './Scene';
 import { Input } from '../systems/Input';
 import { Game } from '../Game';
 import { Save } from '../systems/Save';
+import { Audio } from '../systems/Audio';
 
 type MenuOption = 'continue' | 'single' | 'coop' | 'versus' | 'editor';
 type MenuState = 'main' | 'difficulty';
@@ -22,6 +23,9 @@ export class MenuScene implements Scene {
   private difficultyIndex = 1; // default medium
   private pendingMode: GameMode | null = null;
   private options: MenuOption[] = [];
+  private toastText: string | null = null;
+  private toastTimer = 0;
+  private static readonly TOAST_DURATION = 1.5;
 
   constructor(game: Game) {
     this.game = game;
@@ -46,6 +50,17 @@ export class MenuScene implements Scene {
   exit(): void {}
 
   handleInput(input: Input): void {
+    // 首次进入菜单时初始化 AudioContext（必须在用户手势回调内）
+    Audio.init();
+
+    // 全局 M 键切换静音
+    if (input.isKeyPressed('KeyM')) {
+      Audio.toggle();
+      this.toastText = Audio.isEnabled() ? '🔊 音效开' : '🔇 音效关';
+      this.toastTimer = MenuScene.TOAST_DURATION;
+      return;
+    }
+
     if (this.state === 'main') {
       this.handleMainInput(input);
     } else {
@@ -56,12 +71,15 @@ export class MenuScene implements Scene {
   private handleMainInput(input: Input): void {
     if (input.isUp()) {
       this.selectedIndex = (this.selectedIndex - 1 + this.options.length) % this.options.length;
+      Audio.playMenuMove();
     }
     if (input.isDown()) {
       this.selectedIndex = (this.selectedIndex + 1) % this.options.length;
+      Audio.playMenuMove();
     }
     if (input.isConfirm()) {
       const opt = this.options[this.selectedIndex];
+      Audio.playMenuSelect();
       if (opt === 'editor') {
         this.game.switchScene('mapEditor');
         return;
@@ -98,13 +116,16 @@ export class MenuScene implements Scene {
     // 横向选择难度
     if (input.isKeyPressed('ArrowLeft') || input.isKeyPressed('KeyA')) {
       this.difficultyIndex = (this.difficultyIndex - 1 + DIFFICULTY_ORDER.length) % DIFFICULTY_ORDER.length;
+      Audio.playMenuMove();
     }
     if (input.isKeyPressed('ArrowRight') || input.isKeyPressed('KeyD')) {
       this.difficultyIndex = (this.difficultyIndex + 1) % DIFFICULTY_ORDER.length;
+      Audio.playMenuMove();
     }
     if (input.isConfirm()) {
       const difficulty = DIFFICULTY_ORDER[this.difficultyIndex];
       const mode = this.pendingMode!;
+      Audio.playMenuSelect();
       this.game.switchScene('stageIntro', { levelIndex: 0, mode, difficulty });
       return;
     }
@@ -115,7 +136,15 @@ export class MenuScene implements Scene {
     }
   }
 
-  update(_dt: number): void {}
+  update(dt: number): void {
+    if (this.toastTimer > 0) {
+      this.toastTimer -= dt;
+      if (this.toastTimer <= 0) {
+        this.toastTimer = 0;
+        this.toastText = null;
+      }
+    }
+  }
 
   private getOptionLabel(opt: MenuOption): string {
     if (opt === 'continue') {
@@ -153,6 +182,18 @@ export class MenuScene implements Scene {
       this.renderMainOptions(ctx, cx);
     } else {
       this.renderDifficultySelect(ctx, cx);
+    }
+
+    // 静音切换提示（右上角，~1.5s 淡出）
+    if (this.toastText) {
+      const alpha = Math.min(1, this.toastTimer / 0.4);
+      ctx.globalAlpha = alpha;
+      ctx.font = 'bold 14px monospace';
+      ctx.fillStyle = COLORS.hudText;
+      ctx.textAlign = 'right';
+      ctx.fillText(this.toastText, CANVAS_WIDTH - 12, 24);
+      ctx.textAlign = 'center';
+      ctx.globalAlpha = 1;
     }
 
     // 手柄状态提示（底部）

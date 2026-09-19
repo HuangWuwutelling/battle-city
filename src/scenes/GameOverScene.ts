@@ -2,6 +2,7 @@ import { CANVAS_WIDTH, CANVAS_HEIGHT, COLORS } from '../constants';
 import { Scene } from './Scene';
 import { Input } from '../systems/Input';
 import { Game } from '../Game';
+import { Audio } from '../systems/Audio';
 
 export class GameOverScene implements Scene {
   private game: Game;
@@ -15,6 +16,8 @@ export class GameOverScene implements Scene {
   enter(params?: Record<string, unknown>): void {
     this.score = (params?.score as number) ?? 0;
     this.timer = 0;
+    // 游戏结束音效
+    Audio.playGameOver();
   }
 
   exit(): void {}

@@ -71,6 +71,7 @@ export class EnemyManager {
         const { config, point } = this.spawning;
         const enemy = new EnemyTank(point.x * CELL_SIZE, point.y * CELL_SIZE, config.type, this.currentSpeedMult);
         this.activeEnemies.push(enemy);
+        // 敌人诞生音效跳过：闪光动画已足够辨识，避免噪音
         this.spawning = null;
       }
       return;
