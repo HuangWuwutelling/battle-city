@@ -260,18 +260,13 @@ export class GameScene implements Scene {
       }
     }
 
-    // Enemy AI targets the first active player position
+    // Enemy AI targets the first active player position. EnemyManager.update
+    // now registers each enemy's freshly-fired bullet directly into the
+    // BulletManager (via bulletManager.addBullet), so GameScene no longer
+    // needs the per-frame "scan every active enemy bullet and check
+    // hasBullet" loop that used to live here.
     const target = this.players.find(p => p.active) ?? null;
-    this.enemyManager.update(dt, this.map, allTanks, target ? target.center : null);
-
-    // Pull any newly spawned enemy bullets into the bullet manager
-    for (const enemy of this.enemyManager.activeEnemies) {
-      for (const bullet of enemy.activeBullets) {
-        if (!this.bulletManager.hasBullet(bullet)) {
-          this.bulletManager.addBullet(bullet, 'enemy');
-        }
-      }
-    }
+    this.enemyManager.update(dt, this.map, allTanks, target ? target.center : null, this.bulletManager);
 
     this.bulletManager.update(dt);
 

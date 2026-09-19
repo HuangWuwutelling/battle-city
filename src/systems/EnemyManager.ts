@@ -8,6 +8,7 @@ import { EnemyTank } from '../entities/EnemyTank';
 import { Bullet } from '../entities/Bullet';
 import { Tank } from '../entities/Tank';
 import { GameMap } from './Map';
+import { BulletManager } from './BulletManager';
 import { PixelArt } from '../rendering/PixelArt';
 import type { EnemyManagerSnapshot } from './Snapshot';
 
@@ -64,7 +65,7 @@ export class EnemyManager {
            this.spawning === null;
   }
 
-  update(dt: number, map: GameMap, allTanks: Tank[], playerPos: Point | null): void {
+  update(dt: number, map: GameMap, allTanks: Tank[], playerPos: Point | null, bulletManager: BulletManager): void {
     // Handle spawning animation
     if (this.spawning) {
       this.spawning.timer += dt;
@@ -87,10 +88,20 @@ export class EnemyManager {
       this.trySpawn();
     }
 
-    // Update active enemies
+    // Update active enemies. Each EnemyTank.update() returns the bullet it
+    // fired this tick (or null); we register that bullet directly with the
+    // shared BulletManager so enemy-owned bullets join the same collision
+    // pipeline as player/ally bullets. The bullet was already moved once
+    // inside EnemyTank.updateBullets, so it gets its fair-play tick of
+    // motion before BulletManager.update/processCollisions run this frame.
+    // BulletManager.addBullet is deduped via a WeakSet, so re-registration
+    // would be a no-op if any pre-existing bullet somehow slipped through.
     for (const enemy of this.activeEnemies) {
       if (!enemy.active) continue;
-      enemy.update(dt, map, allTanks, playerPos);
+      const newBullet = enemy.update(dt, map, allTanks, playerPos);
+      if (newBullet) {
+        bulletManager.addBullet(newBullet, 'enemy');
+      }
     }
 
     // Clean up dead enemies
