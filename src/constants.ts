@@ -1,3 +1,6 @@
+// Difficulty type (defined in src/types.ts, added in Task 2)
+import type { Difficulty } from './types';
+
 // Grid
 export const TILE_SIZE = 32;        // 1 tile = 32px (2×2 cells)
 export const CELL_SIZE = 16;        // 1 cell = 16px
@@ -19,6 +22,7 @@ export const PLAYER_SPEED = 2;        // px per frame @60fps
 export const PLAYER_BULLET_SPEED = 6;
 export const PLAYER_MAX_BULLETS = 1;
 export const PLAYER_LIVES = 3;
+export const ALLY_LIVES = 3;
 export const INVINCIBLE_DURATION = 3; // seconds
 
 // Enemy speeds
@@ -54,6 +58,8 @@ export const ENEMY_SPAWN_POINTS = [
   { x: 24, y: 0 },
 ] as const;
 export const PLAYER_SPAWN = { x: 8, y: 24 };
+export const PLAYER1_SPAWN = PLAYER_SPAWN;       // 别名，便于多人语义一致
+export const PLAYER2_SPAWN = { x: 16, y: 24 };
 export const EAGLE_POS = { x: 12, y: 24 };
 
 // Timings
@@ -78,8 +84,12 @@ export const COLORS = {
   iceLight: '#C0E0F0',
   eagle: '#E0E0E0',
   eagleDark: '#808080',
-  playerBody: '#FFD700',
-  playerTrack: '#AA8800',
+  player1Body: '#FFD700',
+  player1Track: '#AA8800',
+  player2Body: '#FFA500',
+  player2Track: '#A05800',
+  allyBody: '#00BFFF',
+  allyTrack: '#0070A0',
   enemyBasic: '#C0C0C0',
   enemyFast: '#E04040',
   enemyPower: '#40C040',
@@ -90,3 +100,10 @@ export const COLORS = {
   hud: '#404040',
   hudText: '#FFFFFF',
 } as const;
+
+// Difficulty configuration
+export const DIFFICULTY: Record<Difficulty, { speedMult: number; countMult: number }> = {
+  easy:   { speedMult: 0.75, countMult: 0.7 },
+  medium: { speedMult: 1.0,  countMult: 1.0 },
+  hard:   { speedMult: 1.25, countMult: 1.3 },
+};
