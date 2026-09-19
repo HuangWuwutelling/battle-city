@@ -4,7 +4,7 @@ import {
   CELL_SIZE, COLORS, DIFFICULTY,
   PLAYER_LIVES, ALLY_LIVES,
 } from '../constants';
-import { Difficulty, Direction, EnemyType, GameMode, LevelData, LevelScore, TileType } from '../types';
+import { Difficulty, Direction, EnemyType, GameMode, LevelData, LevelScore, Point, TileType } from '../types';
 import { Scene } from './Scene';
 import { Input } from '../systems/Input';
 import { Game } from '../Game';
@@ -51,14 +51,22 @@ export class GameScene implements Scene {
   enter(params?: Record<string, unknown>): void {
     // 暂停快照恢复：从快照重建完整状态，跳过后续默认初始化
     if (params?.snapshot) {
-      this.restoreFromSnapshot(params.snapshot as GameSnapshot);
+      this.enterFromSnapshot(params.snapshot as GameSnapshot);
       return;
     }
-
-    // 新关卡开始音效（从存档恢复时不重放）
-    if (params?.resumeFromSave !== true) {
-      Audio.playLevelStart();
+    if (params?.keepScore) {
+      this.enterNextLevel(params);
+    } else {
+      this.enterFresh(params);
     }
+  }
+
+  /**
+   * New game from menu (or map editor). Resets score, players, ally, lives,
+   * loads the level from scratch, places tanks at spawn points.
+   */
+  private enterFresh(params?: Record<string, unknown>): void {
+    Audio.playLevelStart();
 
     this.levelIndex = (params?.levelIndex as number) ?? 0;
     this.isCustomLevel = !!(params?.customLevel);
@@ -67,48 +75,46 @@ export class GameScene implements Scene {
     this.difficulty = (params?.difficulty as Difficulty) ?? 'medium';
     this.paused = false;
 
-    if (!params?.keepScore) {
-      this.score = 0;
-      this.players = [];
-      this.ally = null;
+    this.score = 0;
+    this.levelScore = { basic: 0, fast: 0, power: 0, armor: 0 };
+    this.players = [];
+    this.ally = null;
 
-      // versus: P1 at PLAYER1_SPAWN + P2 at PLAYER2_SPAWN
-      // coop:   P1 at PLAYER_SPAWN_COOP + ally at ALLY_SPAWN
-      // single: P1 at PLAYER_SPAWN
-      if (this.mode === 'versus') {
-        this.players.push(new PlayerTank(
-          PLAYER1_SPAWN.x * CELL_SIZE,
-          PLAYER1_SPAWN.y * CELL_SIZE,
-          0,
-          COLORS.player1Body,
-          COLORS.player1Track,
-        ));
-        this.players.push(new PlayerTank(
-          PLAYER2_SPAWN.x * CELL_SIZE,
-          PLAYER2_SPAWN.y * CELL_SIZE,
-          1,
-          COLORS.player2Body,
-          COLORS.player2Track,
-        ));
-      } else {
-        const spawn = this.mode === 'coop' ? PLAYER_SPAWN_COOP : PLAYER_SPAWN;
-        this.players.push(new PlayerTank(
-          spawn.x * CELL_SIZE,
-          spawn.y * CELL_SIZE,
-          0,
-          COLORS.player1Body,
-          COLORS.player1Track,
-        ));
-        if (this.mode === 'coop') {
-          this.ally = new AlliedTank(
-            ALLY_SPAWN.x * CELL_SIZE,
-            ALLY_SPAWN.y * CELL_SIZE,
-          );
-        }
+    // versus: P1 at PLAYER1_SPAWN + P2 at PLAYER2_SPAWN
+    // coop:   P1 at PLAYER_SPAWN_COOP + ally at ALLY_SPAWN
+    // single: P1 at PLAYER_SPAWN
+    if (this.mode === 'versus') {
+      this.players.push(new PlayerTank(
+        PLAYER1_SPAWN.x * CELL_SIZE,
+        PLAYER1_SPAWN.y * CELL_SIZE,
+        0,
+        COLORS.player1Body,
+        COLORS.player1Track,
+      ));
+      this.players.push(new PlayerTank(
+        PLAYER2_SPAWN.x * CELL_SIZE,
+        PLAYER2_SPAWN.y * CELL_SIZE,
+        1,
+        COLORS.player2Body,
+        COLORS.player2Track,
+      ));
+    } else {
+      const spawn = this.mode === 'coop' ? PLAYER_SPAWN_COOP : PLAYER_SPAWN;
+      this.players.push(new PlayerTank(
+        spawn.x * CELL_SIZE,
+        spawn.y * CELL_SIZE,
+        0,
+        COLORS.player1Body,
+        COLORS.player1Track,
+      ));
+      if (this.mode === 'coop') {
+        this.ally = new AlliedTank(
+          ALLY_SPAWN.x * CELL_SIZE,
+          ALLY_SPAWN.y * CELL_SIZE,
+        );
       }
     }
 
-    this.levelScore = { basic: 0, fast: 0, power: 0, armor: 0 };
     this.map = new GameMap();
     this.bulletManager = new BulletManager();
     this.enemyManager = new EnemyManager();
@@ -117,16 +123,75 @@ export class GameScene implements Scene {
     this.map.loadLevel(levelData);
     this.enemyManager.initLevel(levelData.enemies, this.difficulty);
 
-    // Reset positions on every level transition (even keepScore level switches).
+    this.resetPositionsForMode();
+    this.resetLivesForLevel();
+  }
+
+  /**
+   * Score scene → next stage. Currently delegates to enterFresh because no
+   * caller in the codebase passes keepScore without a snapshot (snapshot
+   * takes the early-return path through enterFromSnapshot). Kept as a
+   * distinct method so the intent ("keep score and players across the
+   * level boundary") is named; if a future caller needs to preserve state
+   * across a level switch, only this method needs to change.
+   */
+  private enterNextLevel(params?: Record<string, unknown>): void {
+    this.enterFresh(params);
+  }
+
+  /**
+   * Restore full game state from a pause snapshot, then auto-resume so
+   * the player doesn't have to press P/Esc after selecting "Continue" from
+   * the menu. (Major #13 — the prior paused-on-restore UX was confusing.)
+   */
+  private enterFromSnapshot(snapshot: GameSnapshot): void {
+    this.restoreFromSnapshot(snapshot);
+    this.paused = false;
+  }
+
+  /**
+   * Single source for per-player spawn point. Mirrors the spawn points
+   * used by enterFresh when creating tanks. Also used by handleFriendlyHit
+   * to place respawned players back at the correct location.
+   */
+  private spawnPointFor(playerIndex: 0 | 1): Point {
+    if (playerIndex === 1) return PLAYER2_SPAWN;
+    if (this.mode === 'versus') return PLAYER1_SPAWN;
+    if (this.mode === 'coop') return PLAYER_SPAWN_COOP;
+    return PLAYER_SPAWN;
+  }
+
+  /**
+   * Snap every player and ally back to its spawn point and re-activate it.
+   * Idempotent on already-spawned tanks (the PlayerTank constructor already
+   * spawns at the right cell, so this is a no-op for the enterFresh path
+   * but matters for any future keepScore path that reuses existing tanks).
+   */
+  private resetPositionsForMode(): void {
     if (this.mode === 'versus') {
       const p1 = this.players[0];
       const p2 = this.players[1];
-      if (p1) { p1.x = PLAYER1_SPAWN.x * CELL_SIZE; p1.y = PLAYER1_SPAWN.y * CELL_SIZE; p1.active = true; p1.hp = 1; }
-      if (p2) { p2.x = PLAYER2_SPAWN.x * CELL_SIZE; p2.y = PLAYER2_SPAWN.y * CELL_SIZE; p2.active = true; p2.hp = 1; }
+      if (p1) {
+        p1.x = PLAYER1_SPAWN.x * CELL_SIZE;
+        p1.y = PLAYER1_SPAWN.y * CELL_SIZE;
+        p1.active = true;
+        p1.hp = 1;
+      }
+      if (p2) {
+        p2.x = PLAYER2_SPAWN.x * CELL_SIZE;
+        p2.y = PLAYER2_SPAWN.y * CELL_SIZE;
+        p2.active = true;
+        p2.hp = 1;
+      }
     } else {
-      const spawn = this.mode === 'coop' ? PLAYER_SPAWN_COOP : PLAYER_SPAWN;
+      const spawn = this.spawnPointFor(0);
       const p1 = this.players[0];
-      if (p1) { p1.x = spawn.x * CELL_SIZE; p1.y = spawn.y * CELL_SIZE; p1.active = true; p1.hp = 1; }
+      if (p1) {
+        p1.x = spawn.x * CELL_SIZE;
+        p1.y = spawn.y * CELL_SIZE;
+        p1.active = true;
+        p1.hp = 1;
+      }
     }
 
     if (this.ally) {
@@ -135,16 +200,19 @@ export class GameScene implements Scene {
       this.ally.active = true;
       this.ally.respawn(ALLY_SPAWN.x * CELL_SIZE, ALLY_SPAWN.y * CELL_SIZE);
     }
+  }
 
-    // Reset lives to the full pool on every new level start, so lives do not
-    // carry over from the previous level. Skipped when resuming from save.
-    if (params?.resumeFromSave !== true) {
-      for (const player of this.players) {
-        player.lives = PLAYER_LIVES;
-      }
-      if (this.ally) {
-        this.ally.lives = ALLY_LIVES;
-      }
+  /**
+   * Reset every player and the ally back to their full lives pool at the
+   * start of a level. Snapshot restore skips this (the snapshot already
+   * carries the correct remaining-lives state via the early-return path).
+   */
+  private resetLivesForLevel(): void {
+    for (const player of this.players) {
+      player.lives = PLAYER_LIVES;
+    }
+    if (this.ally) {
+      this.ally.lives = ALLY_LIVES;
     }
   }
 
@@ -257,9 +325,7 @@ export class GameScene implements Scene {
     for (const player of this.players) {
       if (player.active) continue;
       if (player.lives > 0) {
-        const spawn = player.playerIndex === 0
-          ? (this.mode === 'coop' ? PLAYER_SPAWN_COOP : (this.mode === 'versus' ? PLAYER1_SPAWN : PLAYER_SPAWN))
-          : PLAYER2_SPAWN;
+        const spawn = this.spawnPointFor(player.playerIndex);
         player.respawn(spawn.x * CELL_SIZE, spawn.y * CELL_SIZE);
       }
       // lives <= 0: stay inactive
@@ -356,7 +422,10 @@ export class GameScene implements Scene {
   }
 
   /**
-   * 从快照恢复完整游戏状态。恢复后游戏处于暂停状态，让玩家确认局面后再继续。
+   * 从快照恢复完整游戏状态。默认把 `paused` 设为 true 以避免在恢复过程中
+   * 触发半成品的更新；`enterFromSnapshot`（Major #13 UX 修复）会在恢复
+   * 完成后把 `paused` 设回 false，所以 pause overlay 在玩家选择
+   * "Continue 关卡" 时不会再出现。
    * 不会触发默认的关卡加载 / 敌人初始化 / 生命重置流程。
    */
   private restoreFromSnapshot(snapshot: GameSnapshot): void {
