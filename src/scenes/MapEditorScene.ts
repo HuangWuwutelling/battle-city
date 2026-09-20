@@ -37,10 +37,21 @@ export class MapEditorScene implements Scene {
   private message = '';
   private messageTimer = 0;
 
+  // Cached canvas rect + scale (refreshed on enter/resize). Avoids calling
+  // getBoundingClientRect() on every mouse move/down.
+  private cachedCanvasRect: DOMRect | null = null;
+  private cachedScaleX = 1;
+  private cachedScaleY = 1;
+
+  // Toolbar button labels — hoisted so render() and handleToolbarClick() share
+  // a single source of truth and we don't allocate a fresh array per click.
+  private static readonly TOOLBAR_BUTTONS: readonly string[] = ['新建', '保存', '导出', '测试', '返回'];
+
   private boundMouseMove: (e: MouseEvent) => void;
   private boundMouseDown: (e: MouseEvent) => void;
   private boundMouseUp: (e: MouseEvent) => void;
   private boundContextMenu: (e: Event) => void;
+  private boundResize: () => void;
 
   constructor(game: Game) {
     this.game = game;
@@ -48,6 +59,7 @@ export class MapEditorScene implements Scene {
     this.boundMouseDown = this.onMouseDown.bind(this);
     this.boundMouseUp = this.onMouseUp.bind(this);
     this.boundContextMenu = (e: Event) => e.preventDefault();
+    this.boundResize = () => this.refreshCanvasCache();
   }
 
   enter(): void {
@@ -55,12 +67,14 @@ export class MapEditorScene implements Scene {
     this.selectedTerrain = TILE_BRICK;
     this.selectedTerrainIndex = 0;
     this.message = '';
+    this.refreshCanvasCache();
 
     const canvas = document.getElementById('gameCanvas') as HTMLCanvasElement;
     canvas.addEventListener('mousemove', this.boundMouseMove);
     canvas.addEventListener('mousedown', this.boundMouseDown);
     canvas.addEventListener('mouseup', this.boundMouseUp);
     canvas.addEventListener('contextmenu', this.boundContextMenu);
+    window.addEventListener('resize', this.boundResize);
   }
 
   exit(): void {
@@ -69,6 +83,14 @@ export class MapEditorScene implements Scene {
     canvas.removeEventListener('mousedown', this.boundMouseDown);
     canvas.removeEventListener('mouseup', this.boundMouseUp);
     canvas.removeEventListener('contextmenu', this.boundContextMenu);
+    window.removeEventListener('resize', this.boundResize);
+  }
+
+  private refreshCanvasCache(): void {
+    const canvas = document.getElementById('gameCanvas') as HTMLCanvasElement;
+    this.cachedCanvasRect = canvas.getBoundingClientRect();
+    this.cachedScaleX = canvas.width / this.cachedCanvasRect.width;
+    this.cachedScaleY = canvas.height / this.cachedCanvasRect.height;
   }
 
   private initGrid(): void {
@@ -116,24 +138,20 @@ export class MapEditorScene implements Scene {
   }
 
   private onMouseMove(e: MouseEvent): void {
-    const canvas = document.getElementById('gameCanvas') as HTMLCanvasElement;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    this.mouseX = (e.clientX - rect.left) * scaleX;
-    this.mouseY = (e.clientY - rect.top) * scaleY;
+    const rect = this.cachedCanvasRect;
+    if (!rect) return;
+    this.mouseX = (e.clientX - rect.left) * this.cachedScaleX;
+    this.mouseY = (e.clientY - rect.top) * this.cachedScaleY;
 
     if (this.mouseDown) this.paintAtPixel(this.mouseX, this.mouseY);
     if (this.rightMouseDown) this.eraseAtPixel(this.mouseX, this.mouseY);
   }
 
   private onMouseDown(e: MouseEvent): void {
-    const canvas = document.getElementById('gameCanvas') as HTMLCanvasElement;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const px = (e.clientX - rect.left) * scaleX;
-    const py = (e.clientY - rect.top) * scaleY;
+    const rect = this.cachedCanvasRect;
+    if (!rect) return;
+    const px = (e.clientX - rect.left) * this.cachedScaleX;
+    const py = (e.clientY - rect.top) * this.cachedScaleY;
 
     if (e.button === 0) {
       if (px >= EDITOR_AREA_SIZE) {
@@ -189,14 +207,28 @@ export class MapEditorScene implements Scene {
     const btnWidth = 70;
     const btnGap = 8;
     const startX = 10;
-    const buttons = ['新建', '保存', '导出', '测试', '返回'];
-    for (let i = 0; i < buttons.length; i++) {
+    for (let i = 0; i < MapEditorScene.TOOLBAR_BUTTONS.length; i++) {
       const bx = startX + i * (btnWidth + btnGap);
       if (px >= bx && px < bx + btnWidth) {
-        this.handleToolAction(buttons[i]);
+        this.handleToolAction(MapEditorScene.TOOLBAR_BUTTONS[i]);
         return;
       }
     }
+  }
+
+  private drawToolbarButton(
+    ctx: CanvasRenderingContext2D,
+    x: number, y: number, w: number, h: number,
+    label: string,
+  ): void {
+    ctx.fillStyle = '#505050';
+    ctx.fillRect(x, y, w, h);
+    ctx.font = '12px monospace';
+    ctx.fillStyle = COLORS.hudText;
+    ctx.textAlign = 'center';
+    // baseline: original code placed text at y=22 over a rect at y=6,h=24
+    // (16px below the top edge) — preserved exactly here.
+    ctx.fillText(label, x + w / 2, y + 16);
   }
 
   private handleToolAction(action: string): void {
@@ -281,15 +313,9 @@ export class MapEditorScene implements Scene {
     const btnWidth = 70;
     const btnGap = 8;
     const startX = 10;
-    const buttons = ['新建', '保存', '导出', '测试', '返回'];
-    ctx.font = '12px monospace';
-    ctx.textAlign = 'center';
-    for (let i = 0; i < buttons.length; i++) {
+    for (let i = 0; i < MapEditorScene.TOOLBAR_BUTTONS.length; i++) {
       const bx = startX + i * (btnWidth + btnGap);
-      ctx.fillStyle = '#505050';
-      ctx.fillRect(bx, 6, btnWidth, 24);
-      ctx.fillStyle = COLORS.hudText;
-      ctx.fillText(buttons[i], bx + btnWidth / 2, 22);
+      this.drawToolbarButton(ctx, bx, 6, btnWidth, 24, MapEditorScene.TOOLBAR_BUTTONS[i]);
     }
 
     // Editor background

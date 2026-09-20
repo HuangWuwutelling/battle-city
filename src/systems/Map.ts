@@ -2,6 +2,7 @@ import {
   CELL_SIZE, CELL_COLS, CELL_ROWS,
   GRID_COLS, GRID_ROWS,
   EAGLE_POS, RIVER_ANIMATION_INTERVAL,
+  COLORS,
 } from '../constants';
 import {
   TileType, LevelData, TILE_EMPTY, TILE_BRICK, TILE_STEEL, TILE_GRASS,
@@ -136,6 +137,14 @@ export class GameMap {
   }
 
   renderBaseLayer(ctx: CanvasRenderingContext2D): void {
+    // Pre-fill the gameplay area with the background color so empty cells
+    // don't show stale pixels from the previous frame. Minor #30 removed
+    // Game.ts's per-frame clearRect; this is the new single source of truth
+    // for the gameplay-area background. HUD sidebar is filled separately
+    // by GameScene.renderHUD.
+    ctx.fillStyle = COLORS.background;
+    ctx.fillRect(0, 0, CELL_COLS * CELL_SIZE, CELL_ROWS * CELL_SIZE);
+
     for (let row = 0; row < CELL_ROWS; row++) {
       for (let col = 0; col < CELL_COLS; col++) {
         const type = this.cells[row][col];
@@ -159,14 +168,6 @@ export class GameMap {
         }
       }
     }
-  }
-
-  getCellGrid(): TileType[][] {
-    return this.cells.map(row => [...row]);
-  }
-
-  setCellGrid(grid: TileType[][]): void {
-    this.cells = grid.map(row => [...row]);
   }
 
   /**

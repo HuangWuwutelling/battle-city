@@ -46,10 +46,6 @@ export class BulletManager {
     }
   }
 
-  hasBullet(bullet: Bullet): boolean {
-    return this.bulletSet.has(bullet);
-  }
-
   /**
    * Snapshot-only accessor: returns the internal bullet list in insertion
    * order (stable across a deserialize round-trip). Used by GameScene to

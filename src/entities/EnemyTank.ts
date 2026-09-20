@@ -155,12 +155,13 @@ export class EnemyTank extends Tank {
 
     if (this.flashTimer > 0) {
       this.flashTimer -= 1 / 60;
-      const originalColor = this.bodyColor;
-      if (Math.floor(this.flashTimer * 20) % 2 === 0) {
-        this.bodyColor = COLORS.enemyPower;
-      }
-      super.render(ctx);
-      this.bodyColor = originalColor;
+      // Flash without mutating this.bodyColor — render is a read-only
+      // operation, and downstream code (snapshots, future hit detection)
+      // shouldn't be able to observe a momentary colour change.
+      const color = Math.floor(this.flashTimer * 20) % 2 === 0
+        ? COLORS.enemyPower
+        : this.bodyColor;
+      super.render(ctx, color);
       return;
     }
 

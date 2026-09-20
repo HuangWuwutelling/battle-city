@@ -36,8 +36,6 @@ export class StageIntroScene implements Scene {
         mode: this.mode,
         difficulty: this.difficulty,
         snapshot: this.snapshot ?? undefined,
-        // 有快照时跳过默认的生命重置（快照里已带正确的剩余生命）
-        resumeFromSave: this.snapshot !== null,
       });
     }
   }

@@ -1,4 +1,4 @@
-import { CANVAS_WIDTH, COLORS } from '../constants';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, COLORS } from '../constants';
 import { Difficulty, GameMode } from '../types';
 import { Scene } from './Scene';
 import { Input } from '../systems/Input';
@@ -23,6 +23,12 @@ export class MenuScene implements Scene {
   private difficultyIndex = 1; // default medium
   private pendingMode: GameMode | null = null;
   private options: MenuOption[] = [];
+  // Cached so render() doesn't re-parse localStorage every frame for the
+  // "continue" row. Recomputed in enter() — which fires whenever the menu
+  // scene is re-entered, i.e. after every Save.save/clear that the game
+  // performs before bouncing back to the menu.
+  private continueLabel = '';
+  private gamepadCount = 0;
   private toastText: string | null = null;
   private toastTimer = 0;
   private static readonly TOAST_DURATION = 1.5;
@@ -39,6 +45,10 @@ export class MenuScene implements Scene {
     this.options = ['single', 'coop', 'versus', 'editor'];
     if (Save.hasSnapshot() || Save.hasSave()) this.options.unshift('continue');
 
+    // Refresh the cached "continue" label — Save data may have changed
+    // since last time the menu was visible.
+    this.refreshContinueLabel();
+
     // 从存档恢复上次难度
     const saved = Save.load();
     if (saved) {
@@ -47,11 +57,31 @@ export class MenuScene implements Scene {
     }
   }
 
+  private refreshContinueLabel(): void {
+    const snapshot = Save.loadSnapshot();
+    if (snapshot) {
+      this.continueLabel = `继续关卡 ${snapshot.levelIndex + 1}`;
+      return;
+    }
+    const data = Save.load();
+    this.continueLabel = `继续游戏 (关卡 ${(data?.nextLevel ?? 0) + 1})`;
+  }
+
   exit(): void {}
 
   handleInput(input: Input): void {
-    // 首次进入菜单时初始化 AudioContext（必须在用户手势回调内）
+    // Audio.init() at app start creates the AudioContext in 'suspended'
+    // state on strict-autoplay browsers (iOS Safari, mobile). This
+    // follow-up call inside handleInput is the user-gesture unlock path:
+    // init() is idempotent and resumes a suspended context on subsequent
+    // calls. Without it, iOS users would hear no sound. (See commit
+    // history — init() was originally here, briefly moved to Game.start()
+    // for Minor #33, and re-added when the regression was caught.)
     Audio.init();
+
+    // Cache the live gamepad count once per tick — render() runs after
+    // handleInput and would otherwise call navigator.getGamepads() per frame.
+    this.gamepadCount = input.getConnectedGamepadCount();
 
     // 全局 M 键切换静音
     if (input.isKeyPressed('KeyM')) {
@@ -147,14 +177,7 @@ export class MenuScene implements Scene {
   }
 
   private getOptionLabel(opt: MenuOption): string {
-    if (opt === 'continue') {
-      const snapshot = Save.loadSnapshot();
-      if (snapshot) {
-        return `继续关卡 ${snapshot.levelIndex + 1}`;
-      }
-      const data = Save.load();
-      return `继续游戏 (关卡 ${(data?.nextLevel ?? 0) + 1})`;
-    }
+    if (opt === 'continue') return this.continueLabel;
     if (opt === 'single') return '单人模式';
     if (opt === 'coop')   return '合作模式 (1P + AI)';
     if (opt === 'versus') return '双人模式';
@@ -163,6 +186,12 @@ export class MenuScene implements Scene {
 
   render(ctx: CanvasRenderingContext2D): void {
     const cx = CANVAS_WIDTH / 2;
+
+    // Self-contained background fill. Game.ts's per-frame clearRect was
+    // removed (Minor #30); this scene doesn't draw terrain, so it needs
+    // to paint its own backdrop or canvas transparency shows through.
+    ctx.fillStyle = COLORS.background;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     // Title
     ctx.fillStyle = COLORS.hudText;
@@ -200,9 +229,8 @@ export class MenuScene implements Scene {
     ctx.font = '11px monospace';
     ctx.fillStyle = '#808080';
     ctx.textAlign = 'center';
-    // 直接读 navigator.getGamepads 实时检测
-    const gamepadCount = (navigator.getGamepads ? navigator.getGamepads() : []).filter(g => g !== null).length;
-    ctx.fillText(`🎮 检测到 ${gamepadCount} 个手柄`, cx, 395);
+    // 使用 handleInput 中缓存的计数，避免每帧再扫一次 navigator.getGamepads()
+    ctx.fillText(`🎮 检测到 ${this.gamepadCount} 个手柄`, cx, 395);
   }
 
   private renderMainOptions(ctx: CanvasRenderingContext2D, cx: number): void {

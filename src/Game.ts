@@ -1,4 +1,4 @@
-import { CANVAS_WIDTH, CANVAS_HEIGHT, TICK_RATE, COLORS } from './constants';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, TICK_RATE } from './constants';
 import { Scene } from './scenes/Scene';
 import { Input } from './systems/Input';
 import { MenuScene } from './scenes/MenuScene';
@@ -7,6 +7,16 @@ import { GameScene } from './scenes/GameScene';
 import { ScoreScene } from './scenes/ScoreScene';
 import { GameOverScene } from './scenes/GameOverScene';
 import { MapEditorScene } from './scenes/MapEditorScene';
+import { Audio } from './systems/Audio';
+
+/**
+ * Hard cap on per-frame delta-time (seconds). If the tab is backgrounded
+ * the RAF callback can fire hundreds of ms after `lastTime`; without this
+ * cap the accumulator would then try to "catch up" with a giant burst of
+ * TICK_RATE ticks, freezing the game on resume. 0.25s ≈ 15 missed ticks
+ * at 60fps.
+ */
+const MAX_DT = 0.25;
 
 export class Game {
   private ctx: CanvasRenderingContext2D;
@@ -53,6 +63,12 @@ export class Game {
 
   start(): void {
     this.running = true;
+    // Eager Audio.init() creates the AudioContext at app start so it's
+    // available for any scene that may use it (custom level tests, map
+    // editor). The user-gesture unlock path lives in MenuScene.handleInput,
+    // which calls Audio.init() again on the first keypress to resume a
+    // suspended context on strict-autoplay browsers (iOS Safari).
+    Audio.init();
     this.switchScene('menu');
     this.lastTime = performance.now();
     requestAnimationFrame((t) => this.loop(t));
@@ -61,7 +77,9 @@ export class Game {
   private loop(timestamp: number): void {
     if (!this.running) return;
 
-    const dt = (timestamp - this.lastTime) / 1000;
+    // Clamp dt so a backgrounded tab returning to foreground doesn't
+    // dump hundreds of catch-up TICK_RATE ticks into the accumulator.
+    const dt = Math.min((timestamp - this.lastTime) / 1000, MAX_DT);
     this.lastTime = timestamp;
     this.accumulator += dt;
 
@@ -75,8 +93,15 @@ export class Game {
       this.accumulator -= TICK_RATE;
     }
 
-    this.ctx.fillStyle = COLORS.background;
-    this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    // Background clear removed (Minor #30). Each scene now paints its
+    // own backdrop:
+    //   - GameScene: Map.renderBaseLayer fills the gameplay area
+    //     (CELL_COLS*CELL_SIZE × CELL_ROWS*CELL_SIZE) before iterating
+    //     terrain cells.
+    //   - MenuScene: render() now starts with a full-canvas fillRect.
+    //   - StageIntro / Score / GameOver already covered themselves.
+    //   - MapEditorScene already covers via toolbar + editor + sidbar rects.
+    //   - HUD sidebar in GameScene still draws its own fillRect.
 
     if (this.currentScene) {
       this.currentScene.render(this.ctx);

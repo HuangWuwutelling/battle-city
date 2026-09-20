@@ -68,9 +68,12 @@ export const ENEMY_SPAWN_POINTS = [
   { x: 24, y: 0 },
 ] as const;
 export const PLAYER_SPAWN = { x: 8, y: 24 };
-export const PLAYER1_SPAWN = PLAYER_SPAWN;       // 别名，便于多人语义一致
+// PLAYER1_SPAWN and PLAYER_SPAWN_COOP alias PLAYER_SPAWN so the single
+// source-of-truth is PLAYER_SPAWN. Any future change to the canonical
+// spawn point automatically propagates to both aliases.
+export const PLAYER1_SPAWN = PLAYER_SPAWN;
+export const PLAYER_SPAWN_COOP = PLAYER_SPAWN;
 export const PLAYER2_SPAWN = { x: 16, y: 24 };
-export const PLAYER_SPAWN_COOP = { x: 8, y: 24 };
 export const ALLY_SPAWN = { x: 20, y: 24 };
 export const EAGLE_POS = { x: 12, y: 24 };
 
