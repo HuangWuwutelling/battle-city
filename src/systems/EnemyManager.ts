@@ -10,7 +10,7 @@ import { Tank } from '../entities/Tank';
 import { GameMap } from './Map';
 import { BulletManager } from './BulletManager';
 import { PixelArt } from '../rendering/PixelArt';
-import type { EnemyManagerSnapshot } from './Snapshot';
+import type { EnemyManagerSnapshot, EnemyTankSnapshot } from './Snapshot';
 
 interface SpawningEnemy {
   config: EnemyConfig;
@@ -25,6 +25,14 @@ export class EnemyManager {
   private currentSpawnIndex = 0;
   private spawning: SpawningEnemy | null = null;
   private currentSpeedMult = 1;
+  /**
+   * Number of currently-active enemies — mirrors `activeEnemies.filter(e => e.active).length`
+   * exactly, maintained incrementally to avoid the per-frame filter allocation.
+   * Incremented on spawn (when the spawn animation completes) and decremented
+   * on kill (via the in-place compaction at the top of `update`). Read by
+   * `remainingEnemies`, `isLevelComplete`, and the spawn-block cap.
+   */
+  private _activeCount = 0;
 
   initLevel(
     enemies: { basic: number; fast: number; power: number; armor: number },
@@ -32,6 +40,7 @@ export class EnemyManager {
   ): void {
     this.spawnQueue = [];
     this.activeEnemies = [];
+    this._activeCount = 0;
     this.spawnTimer = 0;
     this.currentSpawnIndex = 0;
     this.spawning = null;
@@ -56,16 +65,36 @@ export class EnemyManager {
   }
 
   get remainingEnemies(): number {
-    return this.spawnQueue.length + this.activeEnemies.filter(e => e.active).length + (this.spawning ? 1 : 0);
+    return this.spawnQueue.length + this._activeCount + (this.spawning ? 1 : 0);
   }
 
   isLevelComplete(): boolean {
     return this.spawnQueue.length === 0 &&
-           this.activeEnemies.filter(e => e.active).length === 0 &&
+           this._activeCount === 0 &&
            this.spawning === null;
   }
 
   update(dt: number, map: GameMap, allTanks: Tank[], playerPos: Point | null, bulletManager: BulletManager): void {
+    // Clean up dead enemies from the previous frame's collisions FIRST, so
+    // the spawn-block below (and any external reader of `_activeCount` /
+    // `remainingEnemies`) sees the same active count that the previous
+    // `.filter(e => e.active).length` returned. Kills happen in
+    // BulletManager.processCollisions, which runs AFTER this update, so any
+    // dead enemy we see here was killed last frame.
+    //
+    // In-place swap-and-pop: survivor order changes, but membership is
+    // preserved (mirrors BulletManager.compact()). The update loop below
+    // still skips inactive via `if (!enemy.active) continue;`, so the slight
+    // reordering inside `activeEnemies` is harmless — AI updates are
+    // order-independent and render draws each tank at its own position.
+    for (let i = this.activeEnemies.length - 1; i >= 0; i--) {
+      if (!this.activeEnemies[i].active) {
+        this.activeEnemies[i] = this.activeEnemies[this.activeEnemies.length - 1];
+        this.activeEnemies.pop();
+        this._activeCount--;
+      }
+    }
+
     // Handle spawning animation
     if (this.spawning) {
       this.spawning.timer += dt;
@@ -73,6 +102,7 @@ export class EnemyManager {
         const { config, point } = this.spawning;
         const enemy = new EnemyTank(point.x * CELL_SIZE, point.y * CELL_SIZE, config.type, this.currentSpeedMult);
         this.activeEnemies.push(enemy);
+        this._activeCount++;
         // 敌人诞生音效跳过：闪光动画已足够辨识，避免噪音
         this.spawning = null;
       }
@@ -82,7 +112,7 @@ export class EnemyManager {
     // Spawn new enemies
     this.spawnTimer += dt;
     if (this.spawnTimer >= SPAWN_INTERVAL &&
-        this.activeEnemies.filter(e => e.active).length < MAX_ACTIVE_ENEMIES &&
+        this._activeCount < MAX_ACTIVE_ENEMIES &&
         this.spawnQueue.length > 0) {
       this.spawnTimer = 0;
       this.trySpawn();
@@ -103,9 +133,6 @@ export class EnemyManager {
         bulletManager.addBullet(newBullet, 'enemy');
       }
     }
-
-    // Clean up dead enemies
-    this.activeEnemies = this.activeEnemies.filter(e => e.active);
   }
 
   private trySpawn(): void {
@@ -147,14 +174,24 @@ export class EnemyManager {
    * previous
    * `(this.enemyManager as unknown as { activeEnemies: ...; currentSpeedMult: ... })....`
    * cast in GameScene.saveSnapshot.
+   *
+   * Builds the enemy-snapshot array in a single pass instead of
+   * `.filter(e => e.active).map(e => e.serialize())` to drop the
+   * intermediate array allocation. Snapshot is not per-frame so this is a
+   * minor cleanup; iteration order still matches the previous
+   * filter-then-map (we iterate `activeEnemies` in its current order and
+   * skip inactive, so positional parity with enemy-bullet assignment in
+   * `applySnapshot` is preserved).
    */
   serialize(): EnemyManagerSnapshot {
+    const enemies: EnemyTankSnapshot[] = [];
+    for (const e of this.activeEnemies) {
+      if (e.active) enemies.push(e.serialize());
+    }
     return {
       currentSpeedMult: this.currentSpeedMult,
       remainingEnemies: this.remainingEnemies,
-      enemies: this.activeEnemies
-        .filter(e => e.active)
-        .map(e => e.serialize()),
+      enemies,
     };
   }
 
@@ -182,8 +219,10 @@ export class EnemyManager {
     // Rebuild a placeholder spawnQueue so `remainingEnemies` returns the
     // same total as the snapshot. The real spawn-time choices are already
     // baked into `activeEnemies`; the queue is just a counter for the HUD.
-    const activeCount = this.activeEnemies.filter(e => e.active).length;
-    const queueLen = Math.max(0, snap.remainingEnemies - activeCount);
+    // Every deserialized enemy comes from `snap.enemies` (serialize only
+    // includes active ones), so the active count equals the array length.
+    this._activeCount = this.activeEnemies.length;
+    const queueLen = Math.max(0, snap.remainingEnemies - this._activeCount);
     this.spawnQueue = new Array(queueLen).fill({ type: 'basic' as EnemyType });
     this.currentSpawnIndex = this.activeEnemies.length;
   }

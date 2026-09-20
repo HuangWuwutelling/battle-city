@@ -123,12 +123,23 @@ export abstract class Tank {
   /**
    * Update all in-flight bullets this tank owns and compact the array
    * in place. Shared by all tank subclasses.
+   *
+   * Compaction uses in-place swap-and-pop (mirrors BulletManager.compact()):
+   * reorders survivors but preserves membership, so callers that only care
+   * about membership (e.g. `activeBullets.length` checks) see identical
+   * semantics to the previous `.filter(b => b.active)`. Iteration order of
+   * survivors can change, but no caller relies on it.
    */
   protected updateBullets(dt: number, map: GameMap): void {
     for (const bullet of this.bullets) {
       if (bullet.active) bullet.update();
     }
-    this.bullets = this.bullets.filter(b => b.active);
+    for (let i = this.bullets.length - 1; i >= 0; i--) {
+      if (!this.bullets[i].active) {
+        this.bullets[i] = this.bullets[this.bullets.length - 1];
+        this.bullets.pop();
+      }
+    }
   }
 
   tryMove(dir: Direction, map: GameMap, allTanks: Tank[]): boolean {
