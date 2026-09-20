@@ -45,6 +45,13 @@ export class GameScene implements Scene {
   // don't rebuild `'♥'.repeat(n)` on every render — lives only changes
   // when a tank is hit, so the cached string is reused most frames.
   private heartStrCache: Map<string, { lives: number; str: string }> = new Map();
+  // Tanks respawned during the current update() pass. Cleared at the start
+  // of every update(). handleFriendlyHit consults this set to avoid
+  // respawning the same tank twice if its bullet-vs-tank match collides
+  // with a per-frame double-dispatch (defensive — current BulletManager
+  // emits at most one hit per bullet per frame, but the contract is now
+  // explicit and the cost is one Set.add per friendly hit).
+  private respawnedThisFrame: Set<Tank> = new Set();
 
   constructor(game: Game) {
     this.game = game;
@@ -237,6 +244,11 @@ export class GameScene implements Scene {
     if (!this.input) return;
     if (this.paused) return;
 
+    // Reset per-frame respawn guard. handleFriendlyHit uses this to avoid
+    // respawning the same tank twice if the same hit is reported more
+    // than once in a single update() pass.
+    this.respawnedThisFrame.clear();
+
     this.map.update(dt);
 
     // Build the unified tank list used for movement collision checks.
@@ -316,22 +328,29 @@ export class GameScene implements Scene {
    * - lives > 0: respawn at that unit's spawn point and decrement lives
    * - lives <= 0: the unit stays inactive for the rest of the level
    * Game Over triggers only when ALL players AND the ally are gone.
+   *
+   * `respawnedThisFrame` guards against respawning the same tank twice in
+   * one frame. Cleared at the start of every update() pass; see
+   * `update(dt)`.
    */
   private handleFriendlyHit(): void {
     // Process each player independently
     for (const player of this.players) {
       if (player.active) continue;
+      if (this.respawnedThisFrame.has(player)) continue;
       if (player.lives > 0) {
         const spawn = this.spawnPointFor(player.playerIndex);
         player.respawn(spawn.x * CELL_SIZE, spawn.y * CELL_SIZE);
+        this.respawnedThisFrame.add(player);
       }
       // lives <= 0: stay inactive
     }
 
     // Process AI ally
-    if (this.ally && !this.ally.active) {
+    if (this.ally && !this.ally.active && !this.respawnedThisFrame.has(this.ally)) {
       if (this.ally.lives > 0) {
         this.ally.respawn(ALLY_SPAWN.x * CELL_SIZE, ALLY_SPAWN.y * CELL_SIZE);
+        this.respawnedThisFrame.add(this.ally);
       }
       // lives <= 0: ally is gone for the level; player(s) continue solo
     }
@@ -405,13 +424,14 @@ export class GameScene implements Scene {
   }
 
   render(ctx: CanvasRenderingContext2D): void {
-    // 1. Base terrain
+    // 1. Base terrain (also fills the gameplay-area background — Minor #30).
     this.map.renderBaseLayer(ctx);
 
-    // 2. Bullets
+    // 2. Bullets AND explosions — BulletManager.render draws both, in that
+    //    order, so explosions always appear above bullets on the same layer.
     this.bulletManager.render(ctx);
 
-    // 3. Tanks (players, ally, then enemies)
+    // 3. Tanks (players, ally, then enemies).
     for (const player of this.players) {
       player.render(ctx);
     }
@@ -422,16 +442,18 @@ export class GameScene implements Scene {
       enemy.render(ctx);
     }
 
-    // 4. Spawn animation
+    // 4. Spawn animation (flashes on top of tanks currently on the board).
     this.enemyManager.renderSpawnAnimation(ctx);
 
-    // 5. Grass overlay (covers tanks — visual cover)
+    // 5. Grass overlay — drawn AFTER tanks so tanks are visually hidden
+    //    inside grass tiles. This is the only intentional "wrong-looking"
+    //    layering order in the pipeline (Minor #16).
     this.map.renderGrassLayer(ctx);
 
-    // 6. HUD
+    // 6. HUD (right sidebar — has its own background fillRect).
     this.renderHUD(ctx);
 
-    // 7. Pause overlay
+    // 7. Pause overlay (semi-transparent black sheet over gameplay area).
     if (this.paused) {
       this.renderPauseOverlay(ctx);
     }

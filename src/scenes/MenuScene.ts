@@ -1,4 +1,4 @@
-import { CANVAS_WIDTH, COLORS } from '../constants';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, COLORS } from '../constants';
 import { Difficulty, GameMode } from '../types';
 import { Scene } from './Scene';
 import { Input } from '../systems/Input';
@@ -70,8 +70,11 @@ export class MenuScene implements Scene {
   exit(): void {}
 
   handleInput(input: Input): void {
-    // 首次进入菜单时初始化 AudioContext（必须在用户手势回调内）
-    Audio.init();
+    // Audio.init() was moved to Game.start() (Minor #33). The call here
+    // used to be the user-gesture unlock point; init() is now eager at
+    // app start, and is idempotent + resumes a suspended context on
+    // subsequent calls — so the eager call still leaves the first user
+    // keypress as the browser unlock-gesture when required.
 
     // Cache the live gamepad count once per tick — render() runs after
     // handleInput and would otherwise call navigator.getGamepads() per frame.
@@ -180,6 +183,12 @@ export class MenuScene implements Scene {
 
   render(ctx: CanvasRenderingContext2D): void {
     const cx = CANVAS_WIDTH / 2;
+
+    // Self-contained background fill. Game.ts's per-frame clearRect was
+    // removed (Minor #30); this scene doesn't draw terrain, so it needs
+    // to paint its own backdrop or canvas transparency shows through.
+    ctx.fillStyle = COLORS.background;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     // Title
     ctx.fillStyle = COLORS.hudText;
