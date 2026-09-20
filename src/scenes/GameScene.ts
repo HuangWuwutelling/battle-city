@@ -4,7 +4,7 @@ import {
   CELL_SIZE, COLORS, DIFFICULTY,
   PLAYER_LIVES, ALLY_LIVES,
 } from '../constants';
-import { Difficulty, Direction, EnemyType, GameMode, LevelData, LevelScore, TileType } from '../types';
+import { Difficulty, EnemyType, GameMode, LevelData, LevelScore, Point } from '../types';
 import { Scene } from './Scene';
 import { Input } from '../systems/Input';
 import { Game } from '../Game';
@@ -13,8 +13,6 @@ import { BulletManager } from '../systems/BulletManager';
 import { EnemyManager } from '../systems/EnemyManager';
 import { PlayerTank } from '../entities/PlayerTank';
 import { AlliedTank } from '../entities/AlliedTank';
-import { EnemyTank } from '../entities/EnemyTank';
-import { Bullet } from '../entities/Bullet';
 import { Tank } from '../entities/Tank';
 import { Save, GameSnapshot } from '../systems/Save';
 import { Audio } from '../systems/Audio';
@@ -51,14 +49,22 @@ export class GameScene implements Scene {
   enter(params?: Record<string, unknown>): void {
     // 暂停快照恢复：从快照重建完整状态，跳过后续默认初始化
     if (params?.snapshot) {
-      this.restoreFromSnapshot(params.snapshot as GameSnapshot);
+      this.enterFromSnapshot(params.snapshot as GameSnapshot);
       return;
     }
-
-    // 新关卡开始音效（从存档恢复时不重放）
-    if (params?.resumeFromSave !== true) {
-      Audio.playLevelStart();
+    if (params?.keepScore) {
+      this.enterNextLevel(params);
+    } else {
+      this.enterFresh(params);
     }
+  }
+
+  /**
+   * New game from menu (or map editor). Resets score, players, ally, lives,
+   * loads the level from scratch, places tanks at spawn points.
+   */
+  private enterFresh(params?: Record<string, unknown>): void {
+    Audio.playLevelStart();
 
     this.levelIndex = (params?.levelIndex as number) ?? 0;
     this.isCustomLevel = !!(params?.customLevel);
@@ -67,48 +73,46 @@ export class GameScene implements Scene {
     this.difficulty = (params?.difficulty as Difficulty) ?? 'medium';
     this.paused = false;
 
-    if (!params?.keepScore) {
-      this.score = 0;
-      this.players = [];
-      this.ally = null;
+    this.score = 0;
+    this.levelScore = { basic: 0, fast: 0, power: 0, armor: 0 };
+    this.players = [];
+    this.ally = null;
 
-      // versus: P1 at PLAYER1_SPAWN + P2 at PLAYER2_SPAWN
-      // coop:   P1 at PLAYER_SPAWN_COOP + ally at ALLY_SPAWN
-      // single: P1 at PLAYER_SPAWN
-      if (this.mode === 'versus') {
-        this.players.push(new PlayerTank(
-          PLAYER1_SPAWN.x * CELL_SIZE,
-          PLAYER1_SPAWN.y * CELL_SIZE,
-          0,
-          COLORS.player1Body,
-          COLORS.player1Track,
-        ));
-        this.players.push(new PlayerTank(
-          PLAYER2_SPAWN.x * CELL_SIZE,
-          PLAYER2_SPAWN.y * CELL_SIZE,
-          1,
-          COLORS.player2Body,
-          COLORS.player2Track,
-        ));
-      } else {
-        const spawn = this.mode === 'coop' ? PLAYER_SPAWN_COOP : PLAYER_SPAWN;
-        this.players.push(new PlayerTank(
-          spawn.x * CELL_SIZE,
-          spawn.y * CELL_SIZE,
-          0,
-          COLORS.player1Body,
-          COLORS.player1Track,
-        ));
-        if (this.mode === 'coop') {
-          this.ally = new AlliedTank(
-            ALLY_SPAWN.x * CELL_SIZE,
-            ALLY_SPAWN.y * CELL_SIZE,
-          );
-        }
+    // versus: P1 at PLAYER1_SPAWN + P2 at PLAYER2_SPAWN
+    // coop:   P1 at PLAYER_SPAWN_COOP + ally at ALLY_SPAWN
+    // single: P1 at PLAYER_SPAWN
+    if (this.mode === 'versus') {
+      this.players.push(new PlayerTank(
+        PLAYER1_SPAWN.x * CELL_SIZE,
+        PLAYER1_SPAWN.y * CELL_SIZE,
+        0,
+        COLORS.player1Body,
+        COLORS.player1Track,
+      ));
+      this.players.push(new PlayerTank(
+        PLAYER2_SPAWN.x * CELL_SIZE,
+        PLAYER2_SPAWN.y * CELL_SIZE,
+        1,
+        COLORS.player2Body,
+        COLORS.player2Track,
+      ));
+    } else {
+      const spawn = this.spawnPointFor(0);
+      this.players.push(new PlayerTank(
+        spawn.x * CELL_SIZE,
+        spawn.y * CELL_SIZE,
+        0,
+        COLORS.player1Body,
+        COLORS.player1Track,
+      ));
+      if (this.mode === 'coop') {
+        this.ally = new AlliedTank(
+          ALLY_SPAWN.x * CELL_SIZE,
+          ALLY_SPAWN.y * CELL_SIZE,
+        );
       }
     }
 
-    this.levelScore = { basic: 0, fast: 0, power: 0, armor: 0 };
     this.map = new GameMap();
     this.bulletManager = new BulletManager();
     this.enemyManager = new EnemyManager();
@@ -117,16 +121,75 @@ export class GameScene implements Scene {
     this.map.loadLevel(levelData);
     this.enemyManager.initLevel(levelData.enemies, this.difficulty);
 
-    // Reset positions on every level transition (even keepScore level switches).
+    this.resetPositionsForMode();
+    this.resetLivesForLevel();
+  }
+
+  /**
+   * Score scene → next stage. Currently delegates to enterFresh because no
+   * caller in the codebase passes keepScore without a snapshot (snapshot
+   * takes the early-return path through enterFromSnapshot). Kept as a
+   * distinct method so the intent ("keep score and players across the
+   * level boundary") is named; if a future caller needs to preserve state
+   * across a level switch, only this method needs to change.
+   */
+  private enterNextLevel(params?: Record<string, unknown>): void {
+    this.enterFresh(params);
+  }
+
+  /**
+   * Restore full game state from a pause snapshot, then auto-resume so
+   * the player doesn't have to press P/Esc after selecting "Continue" from
+   * the menu. (Major #13 — the prior paused-on-restore UX was confusing.)
+   */
+  private enterFromSnapshot(snapshot: GameSnapshot): void {
+    this.restoreFromSnapshot(snapshot);
+    this.paused = false;
+  }
+
+  /**
+   * Single source for per-player spawn point. Mirrors the spawn points
+   * used by enterFresh when creating tanks. Also used by handleFriendlyHit
+   * to place respawned players back at the correct location.
+   */
+  private spawnPointFor(playerIndex: 0 | 1): Point {
+    if (playerIndex === 1) return PLAYER2_SPAWN;
+    if (this.mode === 'versus') return PLAYER1_SPAWN;
+    if (this.mode === 'coop') return PLAYER_SPAWN_COOP;
+    return PLAYER_SPAWN;
+  }
+
+  /**
+   * Snap every player and ally back to its spawn point and re-activate it.
+   * Idempotent on already-spawned tanks (the PlayerTank constructor already
+   * spawns at the right cell, so this is a no-op for the enterFresh path
+   * but matters for any future keepScore path that reuses existing tanks).
+   */
+  private resetPositionsForMode(): void {
     if (this.mode === 'versus') {
       const p1 = this.players[0];
       const p2 = this.players[1];
-      if (p1) { p1.x = PLAYER1_SPAWN.x * CELL_SIZE; p1.y = PLAYER1_SPAWN.y * CELL_SIZE; p1.active = true; p1.hp = 1; }
-      if (p2) { p2.x = PLAYER2_SPAWN.x * CELL_SIZE; p2.y = PLAYER2_SPAWN.y * CELL_SIZE; p2.active = true; p2.hp = 1; }
+      if (p1) {
+        p1.x = PLAYER1_SPAWN.x * CELL_SIZE;
+        p1.y = PLAYER1_SPAWN.y * CELL_SIZE;
+        p1.active = true;
+        p1.hp = 1;
+      }
+      if (p2) {
+        p2.x = PLAYER2_SPAWN.x * CELL_SIZE;
+        p2.y = PLAYER2_SPAWN.y * CELL_SIZE;
+        p2.active = true;
+        p2.hp = 1;
+      }
     } else {
-      const spawn = this.mode === 'coop' ? PLAYER_SPAWN_COOP : PLAYER_SPAWN;
+      const spawn = this.spawnPointFor(0);
       const p1 = this.players[0];
-      if (p1) { p1.x = spawn.x * CELL_SIZE; p1.y = spawn.y * CELL_SIZE; p1.active = true; p1.hp = 1; }
+      if (p1) {
+        p1.x = spawn.x * CELL_SIZE;
+        p1.y = spawn.y * CELL_SIZE;
+        p1.active = true;
+        p1.hp = 1;
+      }
     }
 
     if (this.ally) {
@@ -135,16 +198,19 @@ export class GameScene implements Scene {
       this.ally.active = true;
       this.ally.respawn(ALLY_SPAWN.x * CELL_SIZE, ALLY_SPAWN.y * CELL_SIZE);
     }
+  }
 
-    // Reset lives to the full pool on every new level start, so lives do not
-    // carry over from the previous level. Skipped when resuming from save.
-    if (params?.resumeFromSave !== true) {
-      for (const player of this.players) {
-        player.lives = PLAYER_LIVES;
-      }
-      if (this.ally) {
-        this.ally.lives = ALLY_LIVES;
-      }
+  /**
+   * Reset every player and the ally back to their full lives pool at the
+   * start of a level. Snapshot restore skips this (the snapshot already
+   * carries the correct remaining-lives state via the early-return path).
+   */
+  private resetLivesForLevel(): void {
+    for (const player of this.players) {
+      player.lives = PLAYER_LIVES;
+    }
+    if (this.ally) {
+      this.ally.lives = ALLY_LIVES;
     }
   }
 
@@ -194,16 +260,13 @@ export class GameScene implements Scene {
       }
     }
 
-    // Enemy AI targets the first active player position
+    // Enemy AI targets the first active player position. EnemyManager.update
+    // now registers each enemy's freshly-fired bullet directly into the
+    // BulletManager (via bulletManager.addBullet), so GameScene no longer
+    // needs the per-frame "scan every active enemy bullet and check
+    // hasBullet" loop that used to live here.
     const target = this.players.find(p => p.active) ?? null;
-    this.enemyManager.update(dt, this.map, allTanks, target ? target.center : null);
-
-    // Pull any newly spawned enemy bullets into the bullet manager
-    for (const enemy of this.enemyManager.activeEnemies) {
-      if (enemy.bullet && enemy.bullet.active && !this.bulletManager.hasBullet(enemy.bullet)) {
-        this.bulletManager.addBullet(enemy.bullet, 'enemy');
-      }
-    }
+    this.enemyManager.update(dt, this.map, allTanks, target ? target.center : null, this.bulletManager);
 
     this.bulletManager.update(dt);
 
@@ -221,7 +284,7 @@ export class GameScene implements Scene {
       this.levelScore[type as EnemyType] += count as number;
     }
 
-    if (result.friendlyHitIndex !== null) {
+    if (result.friendlyHit) {
       this.handleFriendlyHit();
     }
 
@@ -255,9 +318,7 @@ export class GameScene implements Scene {
     for (const player of this.players) {
       if (player.active) continue;
       if (player.lives > 0) {
-        const spawn = player.playerIndex === 0
-          ? (this.mode === 'coop' ? PLAYER_SPAWN_COOP : (this.mode === 'versus' ? PLAYER1_SPAWN : PLAYER_SPAWN))
-          : PLAYER2_SPAWN;
+        const spawn = this.spawnPointFor(player.playerIndex);
         player.respawn(spawn.x * CELL_SIZE, spawn.y * CELL_SIZE);
       }
       // lives <= 0: stay inactive
@@ -282,11 +343,13 @@ export class GameScene implements Scene {
 
   /**
    * 将当前完整游戏状态写入 localStorage。
-   * 仅持久化存活的敌人；剩余数量由 EnemyManager.remainingEnemies 计算。
+   * 每一层 (地图 / 玩家 / 友军 / 敌人 / 子弹) 由各自的 `serialize()` 贡献，
+   * 所以这里没有任何 `as unknown as { ... }` 强转。新增字段时 TypeScript
+   * 会在对应的实体类里报错，保证快照 schema 与类保持同步。
    */
   private saveSnapshot(): void {
     const snapshot: GameSnapshot = {
-      version: 1,
+      version: 2,
       savedAt: Date.now(),
       levelIndex: this.levelIndex,
       mode: this.mode,
@@ -295,66 +358,21 @@ export class GameScene implements Scene {
       levelScore: { ...this.levelScore },
       isCustomLevel: this.isCustomLevel,
       customLevelData: this.customLevelData,
-
-      map: {
-        cells: this.map.getCellGrid().map(row => row.map(cell => cell as number)),
-        eagleAlive: this.map.isEagleAlive(),
-      },
-
-      players: this.players.map(p => ({
-        playerIndex: p.playerIndex,
-        x: p.x,
-        y: p.y,
-        direction: p.direction,
-        lives: p.lives,
-        hp: p.hp,
-        active: p.active,
-        invincibleTimer: (p as unknown as { invincibleTimer: number }).invincibleTimer,
-      })),
-
-      ally: this.ally ? {
-        x: this.ally.x,
-        y: this.ally.y,
-        direction: this.ally.direction,
-        lives: this.ally.lives,
-        hp: this.ally.hp,
-        active: this.ally.active,
-        directionTimer: (this.ally as unknown as { directionTimer: number }).directionTimer,
-        nextDirectionChange: (this.ally as unknown as { nextDirectionChange: number }).nextDirectionChange,
-      } : null,
-
-      enemies: this.enemyManager.activeEnemies
-        .filter(e => e.active)
-        .map(e => ({
-          type: e.type,
-          x: e.x,
-          y: e.y,
-          direction: e.direction,
-          hp: e.hp,
-          active: e.active,
-          directionTimer: (e as unknown as { directionTimer: number }).directionTimer,
-          nextDirectionChange: (e as unknown as { nextDirectionChange: number }).nextDirectionChange,
-          shootTimer: (e as unknown as { shootTimer: number }).shootTimer,
-          flashTimer: (e as unknown as { flashTimer: number }).flashTimer,
-          hasBullet: e.bullet !== null,
-        })),
-      remainingEnemies: this.enemyManager.remainingEnemies,
-
-      bullets: ((this.bulletManager as unknown as { bullets: Bullet[] }).bullets).map(b => ({
-        x: b.x,
-        y: b.y,
-        direction: b.direction,
-        speed: b.speed,
-        ownerIsPlayer: b.ownerIsPlayer,
-        active: b.active,
-      })),
+      map: this.map.serialize(),
+      players: this.players.map(p => p.serialize()),
+      ally: this.ally ? this.ally.serialize() : null,
+      enemies: this.enemyManager.serialize(),
+      bullets: this.bulletManager.serialize(),
     };
 
     Save.saveSnapshot(snapshot);
   }
 
   /**
-   * 从快照恢复完整游戏状态。恢复后游戏处于暂停状态，让玩家确认局面后再继续。
+   * 从快照恢复完整游戏状态。默认把 `paused` 设为 true 以避免在恢复过程中
+   * 触发半成品的更新；`enterFromSnapshot`（Major #13 UX 修复）会在恢复
+   * 完成后把 `paused` 设回 false，所以 pause overlay 在玩家选择
+   * "Continue 关卡" 时不会再出现。
    * 不会触发默认的关卡加载 / 敌人初始化 / 生命重置流程。
    */
   private restoreFromSnapshot(snapshot: GameSnapshot): void {
@@ -368,88 +386,18 @@ export class GameScene implements Scene {
     this.paused = true;
 
     // 地图：从快照直接覆盖单元（不走 13×13→26×26 展开），并恢复基地存活标志
-    this.map = new GameMap();
-    this.map.setCellGrid(snapshot.map.cells as unknown as TileType[][]);
-    (this.map as unknown as { eagleAlive: boolean }).eagleAlive = snapshot.map.eagleAlive;
+    this.map = GameMap.deserialize(snapshot.map);
 
-    // 管理器
-    this.bulletManager = new BulletManager();
-    this.enemyManager = new EnemyManager();
+    // 子弹必须先重建：敌人坦克需要按出现顺序拿到自己"持有"的子弹
+    this.bulletManager = BulletManager.deserialize(snapshot.bullets);
+    const enemyBulletsInOrder = this.bulletManager.getBullets().filter(b => !b.ownerIsPlayer);
 
-    // 先创建所有子弹并加入 BulletManager
-    const restoredBullets: Bullet[] = [];
-    for (const b of snapshot.bullets) {
-      const bullet = new Bullet(b.x, b.y, b.direction, b.speed, b.ownerIsPlayer);
-      bullet.active = b.active;
-      restoredBullets.push(bullet);
-      this.bulletManager.addBullet(bullet);
-    }
+    // 敌人：activeEnemies + 各自的子弹归属 + 速度倍率
+    this.enemyManager = EnemyManager.deserialize(snapshot.enemies, enemyBulletsInOrder);
 
-    // 玩家
-    this.players = [];
-    for (const p of snapshot.players) {
-      const colors = p.playerIndex === 0
-        ? { body: COLORS.player1Body, track: COLORS.player1Track }
-        : { body: COLORS.player2Body, track: COLORS.player2Track };
-      const player = new PlayerTank(p.x, p.y, p.playerIndex, colors.body, colors.track);
-      player.direction = p.direction;
-      player.lives = p.lives;
-      player.hp = p.hp;
-      player.active = p.active;
-      (player as unknown as { invincibleTimer: number }).invincibleTimer = p.invincibleTimer;
-      this.players.push(player);
-    }
-
-    // 友军
-    this.ally = null;
-    if (snapshot.ally) {
-      const a = snapshot.ally;
-      const ally = new AlliedTank(a.x, a.y);
-      ally.direction = a.direction;
-      ally.lives = a.lives;
-      ally.hp = a.hp;
-      ally.active = a.active;
-      (ally as unknown as { directionTimer: number }).directionTimer = a.directionTimer;
-      (ally as unknown as { nextDirectionChange: number }).nextDirectionChange = a.nextDirectionChange;
-      this.ally = ally;
-    }
-
-    // 敌人：重建 activeEnemies + 各自的子弹归属 + 速度倍率
-    const em = this.enemyManager as unknown as {
-      activeEnemies: EnemyTank[];
-      spawnQueue: Array<{ type: EnemyType }>;
-      spawnTimer: number;
-      currentSpawnIndex: number;
-      spawning: unknown;
-      currentSpeedMult: number;
-    };
-    const speedMult = DIFFICULTY[snapshot.difficulty].speedMult;
-    em.currentSpeedMult = speedMult;
-    em.spawning = null;
-    em.spawnTimer = 0;
-
-    const enemyBulletsInOrder = restoredBullets.filter(b => !b.ownerIsPlayer);
-    let enemyBulletCursor = 0;
-    for (const e of snapshot.enemies) {
-      const enemy = new EnemyTank(e.x, e.y, e.type, speedMult);
-      enemy.direction = e.direction;
-      enemy.hp = e.hp;
-      enemy.active = e.active;
-      (enemy as unknown as { directionTimer: number }).directionTimer = e.directionTimer;
-      (enemy as unknown as { nextDirectionChange: number }).nextDirectionChange = e.nextDirectionChange;
-      (enemy as unknown as { shootTimer: number }).shootTimer = e.shootTimer;
-      (enemy as unknown as { flashTimer: number }).flashTimer = e.flashTimer;
-      if (e.hasBullet && enemyBulletCursor < enemyBulletsInOrder.length) {
-        (enemy as unknown as { bullet: Bullet | null }).bullet = enemyBulletsInOrder[enemyBulletCursor++];
-      }
-      em.activeEnemies.push(enemy);
-    }
-
-    // 用占位类型重建 spawnQueue，使 remainingEnemies 计数与快照一致
-    const activeCount = em.activeEnemies.filter(e => e.active).length;
-    const spawnQueueLen = Math.max(0, snapshot.remainingEnemies - activeCount);
-    em.spawnQueue = new Array(spawnQueueLen).fill({ type: 'basic' });
-    em.currentSpawnIndex = em.activeEnemies.length;
+    // 玩家 / 友军：每个实体自己负责 deserialize
+    this.players = snapshot.players.map(snap => PlayerTank.deserialize(snap));
+    this.ally = snapshot.ally ? AlliedTank.deserialize(snapshot.ally) : null;
   }
 
   render(ctx: CanvasRenderingContext2D): void {

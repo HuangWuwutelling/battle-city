@@ -8,7 +8,9 @@ import { EnemyTank } from '../entities/EnemyTank';
 import { Bullet } from '../entities/Bullet';
 import { Tank } from '../entities/Tank';
 import { GameMap } from './Map';
+import { BulletManager } from './BulletManager';
 import { PixelArt } from '../rendering/PixelArt';
+import type { EnemyManagerSnapshot } from './Snapshot';
 
 interface SpawningEnemy {
   config: EnemyConfig;
@@ -63,7 +65,7 @@ export class EnemyManager {
            this.spawning === null;
   }
 
-  update(dt: number, map: GameMap, allTanks: Tank[], playerPos: Point | null): void {
+  update(dt: number, map: GameMap, allTanks: Tank[], playerPos: Point | null, bulletManager: BulletManager): void {
     // Handle spawning animation
     if (this.spawning) {
       this.spawning.timer += dt;
@@ -86,12 +88,19 @@ export class EnemyManager {
       this.trySpawn();
     }
 
-    // Update active enemies
+    // Update active enemies. Each EnemyTank.update() returns the bullet it
+    // fired this tick (or null); we register that bullet directly with the
+    // shared BulletManager so enemy-owned bullets join the same collision
+    // pipeline as player/ally bullets. The bullet was already moved once
+    // inside EnemyTank.updateBullets, so it gets its fair-play tick of
+    // motion before BulletManager.update/processCollisions run this frame.
+    // BulletManager.addBullet is deduped via a WeakSet, so re-registration
+    // would be a no-op if any pre-existing bullet somehow slipped through.
     for (const enemy of this.activeEnemies) {
       if (!enemy.active) continue;
       const newBullet = enemy.update(dt, map, allTanks, playerPos);
       if (newBullet) {
-        // Bullet will be picked up by BulletManager via getEnemyBullets
+        bulletManager.addBullet(newBullet, 'enemy');
       }
     }
 
@@ -122,13 +131,6 @@ export class EnemyManager {
     this.spawning = { config, point: spawnPoint, timer: 0 };
   }
 
-  getEnemyBullets(): Bullet[] {
-    return this.activeEnemies
-      .filter(e => e.active)
-      .map(e => e.bullet)
-      .filter((b): b is Bullet => b != null && b.active);
-  }
-
   renderSpawnAnimation(ctx: CanvasRenderingContext2D): void {
     if (!this.spawning) return;
     const frame = Math.floor(this.spawning.timer / (SPAWN_ANIMATION_DURATION / 4)) % 4;
@@ -138,5 +140,57 @@ export class EnemyManager {
       this.spawning.point.y * CELL_SIZE,
       frame,
     );
+  }
+
+  /**
+   * Serialize this manager's state into a typed snapshot. Replaces the
+   * previous
+   * `(this.enemyManager as unknown as { activeEnemies: ...; currentSpeedMult: ... })....`
+   * cast in GameScene.saveSnapshot.
+   */
+  serialize(): EnemyManagerSnapshot {
+    return {
+      currentSpeedMult: this.currentSpeedMult,
+      remainingEnemies: this.remainingEnemies,
+      enemies: this.activeEnemies
+        .filter(e => e.active)
+        .map(e => e.serialize()),
+    };
+  }
+
+  /**
+   * Restore this manager from a typed snapshot. Replaces the previous
+   * `(this.enemyManager as unknown as { ... })....` cast in
+   * GameScene.restoreFromSnapshot. `enemyBulletsInOrder` supplies the
+   * enemy-owned bullets (in stable order, matching the order they were
+   * added to the bullet manager); each enemy whose snapshot says
+   * `hasBullet` gets the next one via EnemyTank.deserialize.
+   */
+  applySnapshot(snap: EnemyManagerSnapshot, enemyBulletsInOrder: Bullet[]): void {
+    this.spawning = null;
+    this.spawnTimer = 0;
+    this.currentSpeedMult = snap.currentSpeedMult;
+    this.activeEnemies = [];
+    let enemyBulletCursor = 0;
+    for (const eSnap of snap.enemies) {
+      const bullet = eSnap.hasBullet && enemyBulletCursor < enemyBulletsInOrder.length
+        ? enemyBulletsInOrder[enemyBulletCursor++]
+        : undefined;
+      const enemy = EnemyTank.deserialize(eSnap, snap.currentSpeedMult, bullet);
+      this.activeEnemies.push(enemy);
+    }
+    // Rebuild a placeholder spawnQueue so `remainingEnemies` returns the
+    // same total as the snapshot. The real spawn-time choices are already
+    // baked into `activeEnemies`; the queue is just a counter for the HUD.
+    const activeCount = this.activeEnemies.filter(e => e.active).length;
+    const queueLen = Math.max(0, snap.remainingEnemies - activeCount);
+    this.spawnQueue = new Array(queueLen).fill({ type: 'basic' as EnemyType });
+    this.currentSpawnIndex = this.activeEnemies.length;
+  }
+
+  static deserialize(snap: EnemyManagerSnapshot, enemyBulletsInOrder: Bullet[]): EnemyManager {
+    const mgr = new EnemyManager();
+    mgr.applySnapshot(snap, enemyBulletsInOrder);
+    return mgr;
   }
 }

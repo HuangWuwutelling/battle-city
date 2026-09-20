@@ -1,10 +1,18 @@
-import type { Direction, Difficulty, EnemyType, GameMode, LevelData, LevelScore } from '../types';
+import type { Difficulty } from '../types';
+import {
+  GameSnapshot, LegacyGameSnapshotV1, SNAPSHOT_VERSION, migrateV1ToV2,
+} from './Snapshot';
+
+// Re-export the current schema so callers (`GameScene`, `StageIntroScene`)
+// can keep importing `GameSnapshot` from this module.
+export type { GameSnapshot } from './Snapshot';
 
 // 简单的 localStorage 存档：当前可继续的最高关卡 + 累计得分
 const SAVE_KEY = 'battle-city-save-v1';
 
 // 暂停时保存的完整游戏状态快照（用于主菜单"继续关卡"恢复）
-const SNAPSHOT_KEY = 'battle-city-snapshot-v1';
+// v2 键：与 v1 键不同，避免旧版 v1 格式与新版 v2 格式互相覆盖造成迁移失败
+const SNAPSHOT_KEY = `battle-city-snapshot-v${SNAPSHOT_VERSION}`;
 
 export interface SaveData {
   // 玩家可以"继续"的下一关（已通关的最高关卡 + 1）
@@ -19,69 +27,10 @@ export interface SaveData {
 }
 
 /**
- * 暂停时保存的完整游戏状态。
- * 用 schema version 字段为将来兼容性/迁移留出空间。
+ * `GameSnapshot` was previously defined here. It's now in `./Snapshot` so the
+ * schema lives next to the entity serialize/deserialize methods. Importing
+ * it from this module still works (see re-export above).
  */
-export interface GameSnapshot {
-  version: 1;
-  savedAt: number;
-  levelIndex: number;
-  mode: GameMode;
-  difficulty: Difficulty;
-  score: number;
-  levelScore: LevelScore;
-  isCustomLevel: boolean;
-  customLevelData: LevelData | null;
-
-  // 地图状态（26×26 单元 + 基地存活标志）
-  map: { cells: number[][]; eagleAlive: boolean };
-
-  // 玩家坦克
-  players: Array<{
-    playerIndex: 0 | 1;
-    x: number; y: number;
-    direction: Direction;
-    lives: number;
-    hp: number;
-    active: boolean;
-    invincibleTimer: number;
-  }>;
-
-  // AI 友军（单人或对战模式下为 null）
-  ally: {
-    x: number; y: number;
-    direction: Direction;
-    lives: number;
-    hp: number;
-    active: boolean;
-    directionTimer: number;
-    nextDirectionChange: number;
-  } | null;
-
-  // 敌人（仅保存存活的；剩余数量另算）
-  enemies: Array<{
-    type: EnemyType;
-    x: number; y: number;
-    direction: Direction;
-    hp: number;
-    active: boolean;
-    directionTimer: number;
-    nextDirectionChange: number;
-    shootTimer: number;
-    flashTimer: number;
-    hasBullet: boolean;
-  }>;
-  remainingEnemies: number;
-
-  // 当前飞行中的子弹
-  bullets: Array<{
-    x: number; y: number;
-    direction: Direction;
-    speed: number;
-    ownerIsPlayer: boolean;
-    active: boolean;
-  }>;
-}
 
 export const Save = {
   load(): SaveData | null {
@@ -150,13 +99,39 @@ export const Save = {
     }
   },
 
+  /**
+   * Read the current snapshot. If the on-disk payload is in the legacy v1
+   * format (older pre-Task-4 saves), it is migrated to v2 in memory and
+   * then re-written under the v2 key so subsequent loads skip the
+   * migration. If the payload is in an unrecognised version (neither 1
+   * nor 2), it's treated as missing — the user gets a fresh game instead
+   * of a half-broken restore.
+   */
   loadSnapshot(): GameSnapshot | null {
     try {
       const raw = localStorage.getItem(SNAPSHOT_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as GameSnapshot;
-      if (parsed.version !== 1) return null; // 拒绝不兼容的版本
-      return parsed;
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<GameSnapshot> & { version?: unknown };
+        if (parsed.version === SNAPSHOT_VERSION) {
+          return parsed as GameSnapshot;
+        }
+        // unknown future version → refuse
+        return null;
+      }
+
+      // No v2 save found. Try legacy v1 keys (one per pre-migration release).
+      for (const legacyKey of ['battle-city-snapshot-v1']) {
+        const legacyRaw = localStorage.getItem(legacyKey);
+        if (!legacyRaw) continue;
+        const legacy = JSON.parse(legacyRaw) as LegacyGameSnapshotV1;
+        if (legacy.version !== 1) continue;
+        const migrated = migrateV1ToV2(legacy);
+        if (!migrated) continue;
+        // Persist under the v2 key so next load is fast.
+        Save.saveSnapshot(migrated);
+        return migrated;
+      }
+      return null;
     } catch {
       return null;
     }
@@ -169,6 +144,13 @@ export const Save = {
   clearSnapshot(): void {
     try {
       localStorage.removeItem(SNAPSHOT_KEY);
+    } catch {
+      // ignore
+    }
+    // Also clear any legacy v1 keys left behind from before the migration,
+    // so they don't shadow future saves if the user ever downgrades.
+    try {
+      localStorage.removeItem('battle-city-snapshot-v1');
     } catch {
       // ignore
     }

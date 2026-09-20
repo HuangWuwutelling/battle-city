@@ -5,8 +5,10 @@ import {
 } from '../constants';
 import {
   TileType, LevelData, TILE_EMPTY, TILE_BRICK, TILE_STEEL, TILE_GRASS,
+  TILE_RIVER, TILE_ICE,
 } from '../types';
 import { PixelArt } from '../rendering/PixelArt';
+import type { MapSnapshot } from './Snapshot';
 
 export class GameMap {
   private cells: TileType[][] = [];
@@ -99,16 +101,16 @@ export class GameMap {
 
   isPassable(col: number, row: number): boolean {
     const type = this.getCell(col, row);
-    return type === TILE_EMPTY || type === TILE_GRASS || type === 5; // empty, grass, ice
+    return type === TILE_EMPTY || type === TILE_GRASS || type === TILE_ICE;
   }
 
   isBulletPassable(col: number, row: number): boolean {
     const type = this.getCell(col, row);
-    return type === TILE_EMPTY || type === TILE_GRASS || type === 4 || type === 5; // empty, grass, river, ice
+    return type === TILE_EMPTY || type === TILE_GRASS || type === TILE_RIVER || type === TILE_ICE;
   }
 
   isIce(col: number, row: number): boolean {
-    return this.getCell(col, row) === 5;
+    return this.getCell(col, row) === TILE_ICE;
   }
 
   destroyCell(col: number, row: number): void {
@@ -165,5 +167,35 @@ export class GameMap {
 
   setCellGrid(grid: TileType[][]): void {
     this.cells = grid.map(row => [...row]);
+  }
+
+  /**
+   * Typed snapshot accessor. Replaces the previous
+   * `(this.map as unknown as { eagleAlive: boolean }).eagleAlive` cast in
+   * GameScene.saveSnapshot — `eagleAlive` stays private (gameplay state,
+   * not part of the public surface) but is now read through this typed
+   * method that the compiler verifies stays in sync with MapSnapshot.
+   */
+  serialize(): MapSnapshot {
+    return {
+      cells: this.cells.map(row => [...row]),
+      eagleAlive: this.eagleAlive,
+    };
+  }
+
+  /**
+   * Restore from a typed snapshot. Reverse of `serialize()`. Replaces the
+   * `(this.map as unknown as { eagleAlive: boolean }).eagleAlive = ...`
+   * cast in GameScene.restoreFromSnapshot.
+   */
+  applySnapshot(snap: MapSnapshot): void {
+    this.cells = snap.cells.map(row => [...row]);
+    this.eagleAlive = snap.eagleAlive;
+  }
+
+  static deserialize(snap: MapSnapshot): GameMap {
+    const map = new GameMap();
+    map.applySnapshot(snap);
+    return map;
   }
 }

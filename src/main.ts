@@ -9,12 +9,17 @@ const LOGICAL_W = CANVAS_WIDTH;
 const LOGICAL_H = CANVAS_HEIGHT;
 const MARGIN = 20;
 
+let rafId = 0;
 function fitCanvas(): void {
-  const maxW = window.innerWidth - MARGIN * 2;
-  const maxH = window.innerHeight - MARGIN * 2;
-  const scale = Math.max(0.5, Math.min(maxW / LOGICAL_W, maxH / LOGICAL_H));
-  canvas.style.width = `${LOGICAL_W * scale}px`;
-  canvas.style.height = `${LOGICAL_H * scale}px`;
+  if (rafId !== 0) return;
+  rafId = requestAnimationFrame(() => {
+    rafId = 0;
+    const maxW = window.innerWidth - MARGIN * 2;
+    const maxH = window.innerHeight - MARGIN * 2;
+    const scale = Math.max(0.5, Math.min(maxW / LOGICAL_W, maxH / LOGICAL_H));
+    canvas.style.width = `${LOGICAL_W * scale}px`;
+    canvas.style.height = `${LOGICAL_H * scale}px`;
+  });
 }
 
 window.addEventListener('resize', fitCanvas);
