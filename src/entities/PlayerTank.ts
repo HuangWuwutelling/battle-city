@@ -26,8 +26,8 @@ export class PlayerTank extends Tank {
     x: number,
     y: number,
     playerIndex: 0 | 1,
-    bodyColor: string = COLORS.player1Body,
-    trackColor: string = COLORS.player1Track,
+    bodyColor: string,
+    trackColor: string,
   ) {
     super(x, y, PLAYER_SPEED, 1, bodyColor, trackColor);
     this.playerIndex = playerIndex;
