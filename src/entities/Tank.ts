@@ -171,11 +171,11 @@ export abstract class Tank {
     return false;
   }
 
-  render(ctx: CanvasRenderingContext2D): void {
+  render(ctx: CanvasRenderingContext2D, overrideColor?: string): void {
     if (!this.active) return;
     PixelArt.drawTank(
       ctx, this.x, this.y,
-      this.direction, this.bodyColor, this.trackColor,
+      this.direction, overrideColor ?? this.bodyColor, this.trackColor,
       this.anim.currentFrame,
     );
   }
