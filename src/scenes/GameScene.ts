@@ -41,6 +41,10 @@ export class GameScene implements Scene {
   private mode: GameMode = 'single';
   private difficulty: Difficulty = 'medium';
   private paused = false;
+  // Per-unit HUD heart-string cache. Keyed by the unit's HUD label so we
+  // don't rebuild `'♥'.repeat(n)` on every render — lives only changes
+  // when a tank is hit, so the cached string is reused most frames.
+  private heartStrCache: Map<string, { lives: number; str: string }> = new Map();
 
   constructor(game: Game) {
     this.game = game;
@@ -437,6 +441,11 @@ export class GameScene implements Scene {
     const hx = GAME_AREA_WIDTH;
     const cx = hx + HUD_WIDTH / 2;
 
+    // Save fillStyle so this closure doesn't leak its many colour mutations
+    // out to the caller (the pause overlay drawn right after this needs
+    // its own explicit fillStyle assignments to be unaffected).
+    const savedFillStyle = ctx.fillStyle;
+
     ctx.fillStyle = '#404040';
     ctx.fillRect(hx, 0, HUD_WIDTH, CANVAS_HEIGHT);
 
@@ -465,7 +474,12 @@ export class GameScene implements Scene {
       ctx.font = '10px monospace';
       if (active) {
         ctx.fillStyle = COLORS.hudText;
-        ctx.fillText('♥'.repeat(Math.max(0, lives)), cx, yCursor);
+        // Cache the heart string per unit; only rebuild when lives changes.
+        const cached = this.heartStrCache.get(label);
+        if (!cached || cached.lives !== lives) {
+          this.heartStrCache.set(label, { lives, str: '♥'.repeat(Math.max(0, lives)) });
+        }
+        ctx.fillText(this.heartStrCache.get(label)!.str, cx, yCursor);
       } else {
         ctx.fillStyle = '#808080';
         ctx.fillText(inactiveLabel ?? 'OUT', cx, yCursor);
@@ -503,6 +517,9 @@ export class GameScene implements Scene {
     ctx.fillText('SCORE', cx, 360);
     ctx.font = 'bold 16px monospace';
     ctx.fillText(`${this.score}`, cx, 385);
+
+    // Restore the caller's fillStyle (see savedFillStyle above).
+    ctx.fillStyle = savedFillStyle;
   }
 
   private renderPauseOverlay(ctx: CanvasRenderingContext2D): void {
