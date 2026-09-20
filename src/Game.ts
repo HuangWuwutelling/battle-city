@@ -13,7 +13,8 @@ import { Audio } from './systems/Audio';
  * Hard cap on per-frame delta-time (seconds). If the tab is backgrounded
  * the RAF callback can fire hundreds of ms after `lastTime`; without this
  * cap the accumulator would then try to "catch up" with a giant burst of
- * TICK_RATE ticks, freezing the game on resume. 0.25s = 4 missed frames.
+ * TICK_RATE ticks, freezing the game on resume. 0.25s ≈ 15 missed ticks
+ * at 60fps.
  */
 const MAX_DT = 0.25;
 
