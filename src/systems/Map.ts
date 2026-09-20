@@ -161,14 +161,6 @@ export class GameMap {
     }
   }
 
-  getCellGrid(): TileType[][] {
-    return this.cells.map(row => [...row]);
-  }
-
-  setCellGrid(grid: TileType[][]): void {
-    this.cells = grid.map(row => [...row]);
-  }
-
   /**
    * Typed snapshot accessor. Replaces the previous
    * `(this.map as unknown as { eagleAlive: boolean }).eagleAlive` cast in
