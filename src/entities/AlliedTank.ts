@@ -158,7 +158,7 @@ export class AlliedTank extends Tank {
     // 射击
     let newBullet: Bullet | null = null;
     this.shootTimer -= dt;
-    if (this.shootTimer <= 0 && this.activeBullets.length < ALLY_MAX_BULLETS) {
+    if (this.shootTimer <= 0 && this.activeBulletCount < ALLY_MAX_BULLETS) {
       // 仅在朝敌人方向时射击（避免乱开枪暴露位置）
       if (this.hasEnemyInDirection(this.direction, enemies)) {
         const bp = this.getBulletSpawnPoint();

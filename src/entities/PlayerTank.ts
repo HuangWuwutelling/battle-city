@@ -105,7 +105,7 @@ export class PlayerTank extends Tank {
 
     // Shooting
     this.shootCooldown = Math.max(0, this.shootCooldown - dt);
-    if (input.isPlayerShooting(this.playerIndex) && this.shootCooldown <= 0 && this.activeBullets.length < PLAYER_MAX_BULLETS) {
+    if (input.isPlayerShooting(this.playerIndex) && this.shootCooldown <= 0 && this.activeBulletCount < PLAYER_MAX_BULLETS) {
       const bp = this.getBulletSpawnPoint();
       newBullet = new Bullet(bp.x, bp.y, this.direction, PLAYER_BULLET_SPEED, true);
       this.bullets.push(newBullet);

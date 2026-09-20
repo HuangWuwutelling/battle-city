@@ -21,6 +21,7 @@ export abstract class Tank {
   readonly anim: Animation;
   protected shootCooldown = 0;
   protected bullets: Bullet[] = [];
+  protected _activeBulletCount = 0;
 
   constructor(x: number, y: number, speed: number, hp: number, bodyColor: string, trackColor: string) {
     this.x = x;
@@ -61,12 +62,13 @@ export abstract class Tank {
   }
 
   /**
-   * All bullets this tank currently has in flight (active only).
-   * Exposed via the base class so callers don't need to know which subclass
-   * uses an array vs. a single slot.
+   * Number of bullets this tank currently has in flight.
+   * Counter maintained in lockstep with `bullets[]`; callers that only
+   * need the count (e.g. "can I shoot?") should prefer this over
+   * `bullets.filter(...).length` to avoid per-call array allocations.
    */
-  get activeBullets(): Bullet[] {
-    return this.bullets.filter(b => b.active);
+  get activeBulletCount(): number {
+    return this._activeBulletCount;
   }
 
   /**
@@ -126,9 +128,12 @@ export abstract class Tank {
    *
    * Compaction uses in-place swap-and-pop (mirrors BulletManager.compact()):
    * reorders survivors but preserves membership, so callers that only care
-   * about membership (e.g. `activeBullets.length` checks) see identical
-   * semantics to the previous `.filter(b => b.active)`. Iteration order of
+   * about the count (e.g. `activeBulletCount` checks) see identical semantics
+   * to the previous `.filter(b => b.active).length`. Iteration order of
    * survivors can change, but no caller relies on it.
+   *
+   * After compaction, all survivors are active, so the active-bullet count
+   * equals `this.bullets.length` — sync the counter here.
    */
   protected updateBullets(dt: number, map: GameMap): void {
     for (const bullet of this.bullets) {
@@ -140,6 +145,7 @@ export abstract class Tank {
         this.bullets.pop();
       }
     }
+    this._activeBulletCount = this.bullets.length;
   }
 
   tryMove(dir: Direction, map: GameMap, allTanks: Tank[]): boolean {

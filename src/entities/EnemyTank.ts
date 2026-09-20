@@ -84,7 +84,7 @@ export class EnemyTank extends Tank {
     // Shoot timer
     let newBullet: Bullet | null = null;
     this.shootTimer -= dt;
-    if (this.shootTimer <= 0 && this.activeBullets.length === 0) {
+    if (this.shootTimer <= 0 && this.activeBulletCount === 0) {
       const bp = this.getBulletSpawnPoint();
       const bullet = new Bullet(bp.x, bp.y, this.direction, this.bulletSpeed, false);
       this.bullets.push(bullet);
@@ -105,9 +105,8 @@ export class EnemyTank extends Tank {
 
   /**
    * Serialize this tank's full state into a typed snapshot. `hasBullet`
-   * is derived from the private `bullets` array via the public
-   * `activeBullets` getter — we count active bullets to preserve the
-   * original semantics where one enemy can carry exactly one bullet.
+   * is derived from the public `activeBulletCount` counter — preserves
+   * the original semantics where one enemy can carry exactly one bullet.
    */
   serialize(): EnemyTankSnapshot {
     return {
@@ -122,7 +121,7 @@ export class EnemyTank extends Tank {
       nextDirectionChange: this.nextDirectionChange,
       shootTimer: this.shootTimer,
       flashTimer: this.flashTimer,
-      hasBullet: this.activeBullets.length > 0,
+      hasBullet: this.activeBulletCount > 0,
     };
   }
 
@@ -147,6 +146,8 @@ export class EnemyTank extends Tank {
     if (bullet) {
       enemy.bullets.push(bullet);
     }
+    // Sync the active-bullet counter (constructor initialized 0).
+    enemy._activeBulletCount = enemy.bullets.length;
     return enemy;
   }
 
