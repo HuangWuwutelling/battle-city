@@ -70,11 +70,14 @@ export class MenuScene implements Scene {
   exit(): void {}
 
   handleInput(input: Input): void {
-    // Audio.init() was moved to Game.start() (Minor #33). The call here
-    // used to be the user-gesture unlock point; init() is now eager at
-    // app start, and is idempotent + resumes a suspended context on
-    // subsequent calls — so the eager call still leaves the first user
-    // keypress as the browser unlock-gesture when required.
+    // Audio.init() at app start creates the AudioContext in 'suspended'
+    // state on strict-autoplay browsers (iOS Safari, mobile). This
+    // follow-up call inside handleInput is the user-gesture unlock path:
+    // init() is idempotent and resumes a suspended context on subsequent
+    // calls. Without it, iOS users would hear no sound. (See commit
+    // history — init() was originally here, briefly moved to Game.start()
+    // for Minor #33, and re-added when the regression was caught.)
+    Audio.init();
 
     // Cache the live gamepad count once per tick — render() runs after
     // handleInput and would otherwise call navigator.getGamepads() per frame.

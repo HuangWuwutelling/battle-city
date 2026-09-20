@@ -63,11 +63,11 @@ export class Game {
 
   start(): void {
     this.running = true;
-    // Minor #33 — Audio.init() used to live in MenuScene.handleInput (only
-    // ran on a user key/confirm). It's now called eagerly at app start.
-    // init() is idempotent and also resumes a suspended AudioContext on
-    // subsequent calls, so the eager call still leaves the first user
-    // keypress as the unlock-gesture for browsers that require it.
+    // Eager Audio.init() creates the AudioContext at app start so it's
+    // available for any scene that may use it (custom level tests, map
+    // editor). The user-gesture unlock path lives in MenuScene.handleInput,
+    // which calls Audio.init() again on the first keypress to resume a
+    // suspended context on strict-autoplay browsers (iOS Safari).
     Audio.init();
     this.switchScene('menu');
     this.lastTime = performance.now();
