@@ -21,6 +21,9 @@ Thumbs.db
 *.swp
 *.swo
 
+# Personal hardware / input mapping configs (e.g. antimicro .amgp)
+*.amgp
+
 # Logs
 *.log
 npm-debug.log*
